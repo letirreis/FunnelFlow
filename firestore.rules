@@ -1,0 +1,60 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "letirreis@gmail.com" && request.auth.token.email_verified == true));
+    }
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    // Funnels
+    match /funnels/{funnelId} {
+      allow read: if true; // Publicly readable for the renderer
+      allow create: if isAuthenticated() && request.resource.data.ownerId == request.auth.uid;
+      allow update, delete: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
+
+      match /questions/{questionId} {
+        allow read: if true;
+        allow write: if isAuthenticated() && get(/databases/$(database)/documents/funnels/$(funnelId)).data.ownerId == request.auth.uid;
+        
+        match /options/{optionId} {
+          allow read: if true;
+          allow write: if isAuthenticated() && get(/databases/$(database)/documents/funnels/$(funnelId)).data.ownerId == request.auth.uid;
+        }
+      }
+
+      match /diagnoses/{diagnosisId} {
+        allow read: if true;
+        allow write: if isAuthenticated() && get(/databases/$(database)/documents/funnels/$(funnelId)).data.ownerId == request.auth.uid;
+      }
+    }
+
+    // Leads
+    match /leads/{leadId} {
+      allow read: if isAuthenticated() && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow create: if true; // Publicly creatable by respondents
+    }
+
+    // Responses
+    match /responses/{responseId} {
+      allow read: if isAuthenticated() && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow create: if true; // Publicly creatable by respondents
+    }
+
+    // Users
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if isOwner(userId) || isAdmin();
+    }
+  }
+}

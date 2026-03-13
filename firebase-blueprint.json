@@ -1,0 +1,119 @@
+{
+  "entities": {
+    "Funnel": {
+      "title": "Funnel",
+      "description": "A diagnostic funnel configuration",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string" },
+        "name": { "type": "string" },
+        "slug": { "type": "string" },
+        "status": { "type": "string", "enum": ["draft", "published"] },
+        "branding": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "name", "slug", "status"]
+    },
+    "Question": {
+      "title": "Question",
+      "description": "A question within a funnel",
+      "type": "object",
+      "properties": {
+        "funnelId": { "type": "string" },
+        "order": { "type": "integer" },
+        "type": { "type": "string", "enum": ["single", "multi", "scale", "boolean", "text", "number", "image"] },
+        "text": { "type": "string" },
+        "description": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "conditionalLogic": { "type": "object" }
+      },
+      "required": ["funnelId", "order", "type", "text"]
+    },
+    "AnswerOption": {
+      "title": "AnswerOption",
+      "description": "A possible answer for a question",
+      "type": "object",
+      "properties": {
+        "questionId": { "type": "string" },
+        "text": { "type": "string" },
+        "score": { "type": "number" },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "imageUrl": { "type": "string" }
+      },
+      "required": ["questionId", "text"]
+    },
+    "Diagnosis": {
+      "title": "Diagnosis",
+      "description": "A result based on score range",
+      "type": "object",
+      "properties": {
+        "funnelId": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "minScore": { "type": "number" },
+        "maxScore": { "type": "number" },
+        "imageUrl": { "type": "string" },
+        "cta": { "type": "object" }
+      },
+      "required": ["funnelId", "title", "minScore", "maxScore"]
+    },
+    "Lead": {
+      "title": "Lead",
+      "description": "A lead captured through a funnel",
+      "type": "object",
+      "properties": {
+        "funnelId": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "company": { "type": "string" },
+        "revenue": { "type": "string" },
+        "role": { "type": "string" },
+        "consent": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["funnelId", "email", "consent"]
+    },
+    "Response": {
+      "title": "Response",
+      "description": "A user's submission to a funnel",
+      "type": "object",
+      "properties": {
+        "funnelId": { "type": "string" },
+        "leadId": { "type": "string" },
+        "answersJson": { "type": "string" },
+        "score": { "type": "number" },
+        "diagnosisId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["funnelId", "answersJson", "score"]
+    }
+  },
+  "firestore": {
+    "/funnels/{funnelId}": {
+      "schema": "Funnel",
+      "description": "Funnel configurations"
+    },
+    "/funnels/{funnelId}/questions/{questionId}": {
+      "schema": "Question",
+      "description": "Questions for a funnel"
+    },
+    "/funnels/{funnelId}/questions/{questionId}/options/{optionId}": {
+      "schema": "AnswerOption",
+      "description": "Answer options for a question"
+    },
+    "/funnels/{funnelId}/diagnoses/{diagnosisId}": {
+      "schema": "Diagnosis",
+      "description": "Diagnoses for a funnel"
+    },
+    "/leads/{leadId}": {
+      "schema": "Lead",
+      "description": "Captured leads"
+    },
+    "/responses/{responseId}": {
+      "schema": "Response",
+      "description": "Funnel responses"
+    }
+  }
+}
