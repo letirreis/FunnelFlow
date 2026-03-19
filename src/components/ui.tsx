@@ -11,7 +11,7 @@ type ButtonVariants = 'primary' | 'secondary' | 'ghost' | 'danger';
 export const Button = React.forwardRef<
   HTMLButtonElement,
   React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariants }
->(({ className, variant = 'primary', type, ...props }, ref) => {
+>(({ className, variant = 'primary', ...props }, ref) => {
   const variants: Record<ButtonVariants, string> = {
     primary: 'bg-blue-600 text-white hover:bg-blue-700 shadow-sm',
     secondary: 'bg-white text-slate-900 border border-slate-200 hover:bg-slate-50 shadow-sm',
@@ -19,10 +19,13 @@ export const Button = React.forwardRef<
     danger: 'bg-red-500 text-white hover:bg-red-600 shadow-sm',
   };
 
+  // Ensure type defaults to 'button' if not specified
+  const buttonType = (props.type as string) || 'button';
+
   return (
     <button
       ref={ref}
-      type={type ?? 'button'}
+      type={buttonType as any}
       className={cn(
         'inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none hover:opacity-90 active:scale-[0.98]',
         variants[variant],

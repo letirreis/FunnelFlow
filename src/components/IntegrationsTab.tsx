@@ -11,22 +11,36 @@ interface IntegrationsTabProps {
 export function IntegrationsTab({ webhooks, onUpdate }: IntegrationsTabProps) {
   const [isAdding, setIsAdding] = useState(false);
   const [newUrl, setNewUrl] = useState('');
+  const [selectedEvents, setSelectedEvents] = useState<('lead_captured' | 'response_submitted')[]>(['lead_captured', 'response_submitted']);
 
   const [testingId, setTestingId] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<{ id: string, status: 'success' | 'error', message: string } | null>(null);
 
   const addWebhook = () => {
-    if (!newUrl.trim()) return;
+    if (!newUrl.trim() || selectedEvents.length === 0) return;
     const newWebhook: WebhookConfig = {
       id: Math.random().toString(36).substr(2, 9),
       url: newUrl.trim(),
-      events: ['lead_captured', 'response_submitted'],
+      events: selectedEvents,
       enabled: true,
       secret: 'whsec_' + Math.random().toString(36).substr(2, 16)
     };
     onUpdate([...webhooks, newWebhook]);
     setNewUrl('');
+    setSelectedEvents(['lead_captured', 'response_submitted']);
     setIsAdding(false);
+  };
+
+  const toggleEvent = (event: 'lead_captured' | 'response_submitted') => {
+    setSelectedEvents(prev => 
+      prev.includes(event) 
+        ? prev.filter(e => e !== event)
+        : [...prev, event]
+    );
+  };
+
+  const updateWebhookEvents = (id: string, events: ('lead_captured' | 'response_submitted')[]) => {
+    onUpdate(webhooks.map(w => w.id === id ? { ...w, events } : w));
   };
 
   const testWebhook = async (webhook: WebhookConfig) => {
@@ -124,9 +138,45 @@ export function IntegrationsTab({ webhooks, onUpdate }: IntegrationsTabProps) {
                 onChange={(e) => setNewUrl(e.target.value)}
               />
             </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-3">Eventos para Enviar</label>
+              <div className="space-y-2">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input 
+                    type="checkbox" 
+                    checked={selectedEvents.includes('lead_captured')}
+                    onChange={() => toggleEvent('lead_captured')}
+                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-slate-700">Lead Capturado (quando usuário preenche dados)</span>
+                </label>
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input 
+                    type="checkbox" 
+                    checked={selectedEvents.includes('response_submitted')}
+                    onChange={() => toggleEvent('response_submitted')}
+                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-slate-700">Resposta Enviada (quando diagnóstico é finalizado)</span>
+                </label>
+              </div>
+            </div>
             <div className="flex gap-3">
-              <Button onClick={() => setIsAdding(false)} variant="ghost">Cancelar</Button>
-              <Button onClick={addWebhook} disabled={!newUrl.trim()}>Salvar Webhook</Button>
+              <Button 
+                onClick={() => {
+                  setIsAdding(false);
+                  setSelectedEvents(['lead_captured', 'response_submitted']);
+                }} 
+                variant="ghost"
+              >
+                Cancelar
+              </Button>
+              <Button 
+                onClick={addWebhook} 
+                disabled={!newUrl.trim() || selectedEvents.length === 0}
+              >
+                Salvar Webhook
+              </Button>
             </div>
           </div>
         </Card>
@@ -158,12 +208,38 @@ export function IntegrationsTab({ webhooks, onUpdate }: IntegrationsTabProps) {
                         </span>
                       )}
                     </div>
-                    <div className="flex flex-wrap gap-2 mt-3">
-                      {webhook.events.map(event => (
-                        <span key={event} className="text-[10px] bg-slate-100 text-slate-600 px-2 py-1 rounded-md font-medium">
-                          {event === 'lead_captured' ? 'Lead Capturado' : 'Resposta Enviada'}
-                        </span>
-                      ))}
+                    <div className="mt-3">
+                      <p className="text-xs font-medium text-slate-600 mb-2">Eventos:</p>
+                      <div className="flex flex-wrap gap-3">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input 
+                            type="checkbox" 
+                            checked={webhook.events.includes('lead_captured')}
+                            onChange={(e) => {
+                              const newEvents = e.target.checked
+                                ? [...webhook.events, 'lead_captured']
+                                : webhook.events.filter(ev => ev !== 'lead_captured');
+                              updateWebhookEvents(webhook.id, newEvents as any);
+                            }}
+                            className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="text-xs text-slate-600">Lead Capturado</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input 
+                            type="checkbox" 
+                            checked={webhook.events.includes('response_submitted')}
+                            onChange={(e) => {
+                              const newEvents = e.target.checked
+                                ? [...webhook.events, 'response_submitted']
+                                : webhook.events.filter(ev => ev !== 'response_submitted');
+                              updateWebhookEvents(webhook.id, newEvents as any);
+                            }}
+                            className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="text-xs text-slate-600">Resposta Enviada</span>
+                        </label>
+                      </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">

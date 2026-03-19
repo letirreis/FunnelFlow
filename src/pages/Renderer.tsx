@@ -24,6 +24,7 @@ export function Renderer({ slug }: { slug: string }) {
   const [leadId, setLeadId] = useState<string | null>(null);
   const [finalDiagnosis, setFinalDiagnosis] = useState<Diagnosis | null>(null);
   const [totalScore, setTotalScore] = useState(0);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const [variant, setVariant] = useState<'A' | 'B'>('A');
 
@@ -56,12 +57,12 @@ export function Renderer({ slug }: { slug: string }) {
     // Capture UTMs from URL
     const params = new URLSearchParams(window.location.search);
     const utms: TrackingData = {
-      utm_source: params.get('utm_source') || undefined,
-      utm_medium: params.get('utm_medium') || undefined,
-      utm_campaign: params.get('utm_campaign') || undefined,
-      utm_content: params.get('utm_content') || undefined,
-      utm_term: params.get('utm_term') || undefined,
-      referrer: document.referrer || undefined,
+      utm_source: params.get('utm_source') || null,
+      utm_medium: params.get('utm_medium') || null,
+      utm_campaign: params.get('utm_campaign') || null,
+      utm_content: params.get('utm_content') || null,
+      utm_term: params.get('utm_term') || null,
+      referrer: document.referrer || null,
       device: /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop'
     };
     setTracking(utms);
@@ -221,12 +222,26 @@ export function Renderer({ slug }: { slug: string }) {
 
   const startLead = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log('startLead called', { consent: leadForm.consent, isStarting, funnel: !!funnel });
-    if (!leadForm.consent) {
-      console.warn('Consent not given');
+    setFormError(null);
+    
+    // Validate form
+    if (!leadForm.name.trim()) {
+      setFormError('Nome é obrigatório');
       return;
     }
-    if (isStarting || !funnel) return;
+    if (!leadForm.email.trim()) {
+      setFormError('E-mail é obrigatório');
+      return;
+    }
+    if (!leadForm.consent) {
+      setFormError('Você deve aceitar a política de privacidade');
+      return;
+    }
+    if (isStarting || !funnel) {
+      setFormError('Carregando, tente novamente...');
+      return;
+    }
+    
     setIsStarting(true);
 
     try {
@@ -254,9 +269,12 @@ export function Renderer({ slug }: { slug: string }) {
         }).catch(err => console.warn('Failed to increment leadsCount:', err));
         
         setStep('questions');
+      } else {
+        setFormError('Erro ao iniciar diagnóstico. Tente novamente.');
       }
     } catch (err: any) {
       console.error('Start lead failed:', err);
+      setFormError('Erro ao iniciar diagnóstico. Tente novamente.');
     } finally {
       setIsStarting(false);
     }
@@ -554,6 +572,12 @@ export function Renderer({ slug }: { slug: string }) {
                 <h2 className="mb-2 text-3xl font-bold">Identificação</h2>
                 <p className="text-slate-500">Preencha seus dados para iniciar seu diagnóstico personalizado.</p>
               </div>
+
+              {formError && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">
+                  {formError}
+                </div>
+              )}
               
               <form onSubmit={startLead} className="space-y-4">
                 <div className="space-y-1">
@@ -566,7 +590,7 @@ export function Renderer({ slug }: { slug: string }) {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-sm font-medium">E-mail Corporativo</label>
+                  <label className="text-sm font-medium">E-mail</label>
                   <Input 
                     type="email" 
                     required 
@@ -600,7 +624,7 @@ export function Renderer({ slug }: { slug: string }) {
                   type="submit" 
                   disabled={isStarting}
                   className="w-full h-14 text-lg rounded-xl shadow-lg flex items-center justify-center relative z-20 hover:scale-[1.02] active:scale-[0.98] transition-transform cursor-pointer" 
-                  style={{ backgroundColor: 'var(--primary)', cursor: 'pointer' }}
+                  style={{ backgroundColor: 'var(--primary)', cursor: isStarting ? 'not-allowed' : 'pointer' }}
                 >
                   {isStarting ? (
                     <div className="h-6 w-6 animate-spin rounded-full border-2 border-white border-t-transparent" />
