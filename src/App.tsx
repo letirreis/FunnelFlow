@@ -1,20 +1,35 @@
 import React, { useState, useEffect } from 'react';
-import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, User } from 'firebase/auth';
-import { auth } from './firebase';
+import { onAuthStateChanged } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
+import { auth, db } from './firebase';
 import { Dashboard } from './pages/Dashboard';
 import { Builder } from './pages/Builder';
 import { Renderer } from './pages/Renderer';
-import { Button } from './components/ui';
-import { LogIn, Layout } from 'lucide-react';
+import { Login } from './pages/Login';
+import { UserProfile } from './types';
 
 export default function App() {
-  const [user, setUser] = useState<User | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<{ type: 'dashboard' | 'builder' | 'renderer'; id?: string }>({ type: 'dashboard' });
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
+    const unsubscribe = onAuthStateChanged(auth, async (u) => {
+      if (u) {
+        // Fetch user profile from Firestore
+        const userRef = doc(db, 'users', u.uid);
+        const userSnap = await getDoc(userRef);
+        if (userSnap.exists()) {
+          setUserProfile({ ...userSnap.data() } as UserProfile);
+        } else {
+          // Profile might still be creating in Login.tsx
+          // We'll let Login.tsx handle the creation and then onAuthStateChanged will trigger again if needed
+          // or we can just wait. For now, we'll set a basic profile if not found yet
+          setUserProfile(null);
+        }
+      } else {
+        setUserProfile(null);
+      }
       setLoading(false);
     });
     return unsubscribe;
@@ -36,15 +51,10 @@ export default function App() {
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
-  const login = async () => {
-    const provider = new GoogleAuthProvider();
-    await signInWithPopup(auth, provider);
-  };
-
   if (loading) {
     return (
       <div className="flex h-screen items-center justify-center bg-slate-50">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+        <div className="h-12 w-12 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
       </div>
     );
   }
@@ -53,25 +63,8 @@ export default function App() {
     return <Renderer slug={view.id!} />;
   }
 
-  if (!user) {
-    return (
-      <div className="flex h-screen flex-col items-center justify-center bg-slate-50 px-4 text-center">
-        <div className="mb-8 flex items-center gap-2 text-2xl font-bold text-slate-900">
-          <Layout className="h-8 w-8 text-blue-600" />
-          <span>FunnelFlow</span>
-        </div>
-        <h1 className="mb-4 text-4xl font-extrabold tracking-tight text-slate-900 sm:text-5xl">
-          Transforme visitantes em leads qualificados
-        </h1>
-        <p className="mb-8 max-w-lg text-lg text-slate-600">
-          Crie funis de diagnóstico interativos e entregue recomendações personalizadas em minutos.
-        </p>
-        <Button onClick={login} className="h-12 px-8 text-lg">
-          <LogIn className="mr-2 h-5 w-5" />
-          Começar agora com Google
-        </Button>
-      </div>
-    );
+  if (!userProfile) {
+    return <Login />;
   }
 
   return (

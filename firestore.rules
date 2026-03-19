@@ -8,53 +8,70 @@ service cloud.firestore {
     function isOwner(userId) {
       return isAuthenticated() && request.auth.uid == userId;
     }
-    function isAdmin() {
-      return isAuthenticated() &&
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
-          (request.auth.token.email == "letirreis@gmail.com" && request.auth.token.email_verified == true));
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
     }
-    function isValidEmail(email) {
-      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    function isAdmin() {
+      return isAuthenticated() && (
+        getUserRole() == 'admin' ||
+        (request.auth.token.email == "letirreis@gmail.com" && request.auth.token.email_verified == true)
+      );
+    }
+    function isColaborador() {
+      return isAuthenticated() && getUserRole() == 'colaborador';
+    }
+    function isInfra() {
+      return isAuthenticated() && getUserRole() == 'infra';
+    }
+    function hasStaffAccess() {
+      return isAdmin() || isColaborador() || isInfra();
     }
 
     // Funnels
     match /funnels/{funnelId} {
       allow read: if true; // Publicly readable for the renderer
-      allow create: if isAuthenticated() && request.resource.data.ownerId == request.auth.uid;
-      allow update, delete: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
+      allow create: if hasStaffAccess();
+      allow update: if (hasStaffAccess() && (resource.data.ownerId == request.auth.uid || isAdmin())) || 
+                      (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['views', 'leadsCount']));
+      allow delete: if isAdmin() || (hasStaffAccess() && resource.data.ownerId == request.auth.uid); // Drastic action
 
       match /questions/{questionId} {
         allow read: if true;
-        allow write: if isAuthenticated() && get(/databases/$(database)/documents/funnels/$(funnelId)).data.ownerId == request.auth.uid;
+        allow write: if hasStaffAccess();
         
         match /options/{optionId} {
           allow read: if true;
-          allow write: if isAuthenticated() && get(/databases/$(database)/documents/funnels/$(funnelId)).data.ownerId == request.auth.uid;
+          allow write: if hasStaffAccess();
         }
       }
 
       match /diagnoses/{diagnosisId} {
         allow read: if true;
-        allow write: if isAuthenticated() && get(/databases/$(database)/documents/funnels/$(funnelId)).data.ownerId == request.auth.uid;
+        allow write: if hasStaffAccess();
       }
     }
 
     // Leads
     match /leads/{leadId} {
-      allow read: if isAuthenticated() && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow read: if isAuthenticated() && (isAdmin() || isColaborador());
       allow create: if true; // Publicly creatable by respondents
+      allow update: if isAdmin() || (resource.data.status == 'incomplete');
+      allow delete: if isAdmin();
     }
 
     // Responses
     match /responses/{responseId} {
-      allow read: if isAuthenticated() && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow read: if isAuthenticated() && (isAdmin() || isColaborador());
       allow create: if true; // Publicly creatable by respondents
+      allow update, delete: if isAdmin();
     }
 
     // Users
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
-      allow write: if isOwner(userId) || isAdmin();
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow update: if isAdmin() || (isOwner(userId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']));
+      allow delete: if isAdmin();
     }
   }
 }

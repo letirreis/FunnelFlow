@@ -88,9 +88,28 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["funnelId", "answersJson", "score"]
+    },
+    "User": {
+      "title": "User",
+      "description": "App user profile and role",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "colaborador", "infra"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role"]
     }
   },
   "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
     "/funnels/{funnelId}": {
       "schema": "Funnel",
       "description": "Funnel configurations"

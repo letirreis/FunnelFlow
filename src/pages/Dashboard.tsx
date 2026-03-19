@@ -3,43 +3,74 @@ import { collection, query, where, onSnapshot, addDoc, serverTimestamp, deleteDo
 import { db, auth } from '../firebase';
 import { Funnel } from '../types';
 import { Button, Card } from '../components/ui';
-import { Plus, Edit2, Trash2, BarChart2, ExternalLink, Layout } from 'lucide-react';
+import { signOut } from 'firebase/auth';
+import { Plus, Edit2, Trash2, BarChart2, ExternalLink, Layout, LogOut } from 'lucide-react';
 
 export function Dashboard({ onEdit }: { onEdit: (id: string) => void }) {
   const [funnels, setFunnels] = useState<Funnel[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [newFunnelName, setNewFunnelName] = useState('');
+  const [isCreating, setIsCreating] = useState(false);
+  const [funnelToDelete, setFunnelToDelete] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!auth.currentUser) return;
-    const q = query(collection(db, 'funnels'), where('ownerId', '==', auth.currentUser.uid));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Funnel));
-      setFunnels(data);
-      setLoading(false);
+    const unsubscribeAuth = auth.onAuthStateChanged((user) => {
+      if (!user) {
+        setLoading(false);
+        return;
+      }
+      
+      const q = query(collection(db, 'funnels'), where('ownerId', '==', user.uid));
+      const unsubscribeSnap = onSnapshot(q, (snapshot) => {
+        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Funnel));
+        setFunnels(data);
+        setLoading(false);
+      }, (error) => {
+        console.error("Erro ao carregar funis:", error);
+        setLoading(false);
+      });
+
+      return () => unsubscribeSnap();
     });
-    return unsubscribe;
+
+    return () => unsubscribeAuth();
   }, []);
 
   const createFunnel = async () => {
-    if (!auth.currentUser) return;
-    const name = prompt('Nome do Funil:');
-    if (!name) return;
-    const slug = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-    
-    await addDoc(collection(db, 'funnels'), {
-      ownerId: auth.currentUser.uid,
-      name,
-      slug,
-      status: 'draft',
-      branding: { primaryColor: '#0B84FF' },
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    });
+    if (!auth.currentUser || !newFunnelName.trim()) return;
+    setIsCreating(true);
+    try {
+      const slug = newFunnelName.toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+      
+      await addDoc(collection(db, 'funnels'), {
+        ownerId: auth.currentUser.uid,
+        name: newFunnelName.trim(),
+        slug,
+        status: 'draft',
+        branding: { primaryColor: '#0B84FF' },
+        views: 0,
+        leadsCount: 0,
+        abTesting: { enabled: false },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+      
+      setIsCreateModalOpen(false);
+      setNewFunnelName('');
+    } catch (error) {
+      console.error("Erro ao criar funil:", error);
+    } finally {
+      setIsCreating(false);
+    }
   };
 
   const deleteFunnel = async (id: string) => {
-    if (confirm('Tem certeza que deseja excluir este funil?')) {
+    try {
       await deleteDoc(doc(db, 'funnels', id));
+      setFunnelToDelete(null);
+    } catch (error) {
+      console.error("Erro ao deletar funil:", error);
     }
   };
 
@@ -50,11 +81,66 @@ export function Dashboard({ onEdit }: { onEdit: (id: string) => void }) {
           <h1 className="text-2xl font-bold text-slate-900">Meus Funis</h1>
           <p className="text-slate-500">Gerencie seus diagnósticos e leads.</p>
         </div>
-        <Button onClick={createFunnel}>
-          <Plus className="mr-2 h-4 w-4" />
-          Novo Funil
-        </Button>
+        <div className="flex items-center gap-3">
+          <Button onClick={() => signOut(auth)} variant="ghost" className="text-slate-500 hover:text-red-600">
+            <LogOut className="mr-2 h-4 w-4" />
+            Sair
+          </Button>
+          <Button onClick={() => setIsCreateModalOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Novo Funil
+          </Button>
+        </div>
       </header>
+
+      {/* Modal de Criação */}
+      {isCreateModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <Card className="w-full max-w-md p-6 shadow-2xl">
+            <h2 className="mb-4 text-xl font-bold">Criar Novo Funil</h2>
+            <div className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">Nome do Funil</label>
+                <input 
+                  type="text"
+                  autoFocus
+                  value={newFunnelName}
+                  onChange={(e) => setNewFunnelName(e.target.value)}
+                  placeholder="Ex: Diagnóstico de Marketing"
+                  className="w-full rounded-lg border border-slate-200 p-2 focus:border-blue-500 focus:outline-none"
+                  onKeyDown={(e) => e.key === 'Enter' && createFunnel()}
+                />
+              </div>
+              <div className="flex gap-3">
+                <Button onClick={() => setIsCreateModalOpen(false)} variant="secondary" className="flex-1">
+                  Cancelar
+                </Button>
+                <Button onClick={createFunnel} disabled={isCreating || !newFunnelName.trim()} className="flex-1">
+                  {isCreating ? 'Criando...' : 'Criar Funil'}
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Modal de Confirmação de Exclusão */}
+      {funnelToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <Card className="w-full max-w-sm p-6 shadow-2xl">
+            <h2 className="mb-2 text-xl font-bold text-red-600">Excluir Funil?</h2>
+            <p className="mb-6 text-slate-500">Esta ação não pode ser desfeita. Todos os dados e leads vinculados serão perdidos.</p>
+            <div className="flex gap-3">
+              <Button onClick={() => setFunnelToDelete(null)} variant="secondary" className="flex-1">
+                Cancelar
+              </Button>
+              <Button onClick={() => deleteFunnel(funnelToDelete)} className="flex-1 bg-red-600 hover:bg-red-700">
+                Excluir
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
 
       {loading ? (
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -67,7 +153,7 @@ export function Dashboard({ onEdit }: { onEdit: (id: string) => void }) {
           <Layout className="mb-4 h-12 w-12 text-slate-300" />
           <h3 className="text-lg font-medium text-slate-900">Nenhum funil criado</h3>
           <p className="mb-6 text-slate-500">Comece criando seu primeiro diagnóstico interativo.</p>
-          <Button onClick={createFunnel} variant="secondary">
+          <Button onClick={() => setIsCreateModalOpen(true)} variant="secondary">
             Criar meu primeiro funil
           </Button>
         </Card>
@@ -88,14 +174,27 @@ export function Dashboard({ onEdit }: { onEdit: (id: string) => void }) {
                   </span>
                 </div>
                 <h3 className="mb-1 text-lg font-semibold text-slate-900">{funnel.name}</h3>
-                <p className="mb-6 text-sm text-slate-500">/{funnel.slug}</p>
+                <p className="mb-4 text-sm text-slate-500">/{funnel.slug}</p>
                 
+                <div className="mb-6 grid grid-cols-2 gap-4 rounded-lg bg-slate-50 p-3">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase text-slate-400">Visitas</p>
+                    <p className="text-lg font-bold text-slate-700">{funnel.views || 0}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold uppercase text-slate-400">Conversão</p>
+                    <p className="text-lg font-bold text-blue-600">
+                      {funnel.views ? ((funnel.leadsCount || 0) / funnel.views * 100).toFixed(1) : 0}%
+                    </p>
+                  </div>
+                </div>
+
                 <div className="flex items-center gap-2">
                   <Button onClick={() => onEdit(funnel.id)} variant="secondary" className="flex-1">
                     <Edit2 className="mr-2 h-4 w-4" />
                     Editar
                   </Button>
-                  <Button onClick={() => deleteFunnel(funnel.id)} variant="ghost" className="text-red-500 hover:bg-red-50">
+                  <Button onClick={() => setFunnelToDelete(funnel.id)} variant="ghost" className="text-red-500 hover:bg-red-50">
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
