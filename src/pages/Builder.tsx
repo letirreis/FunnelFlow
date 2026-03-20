@@ -113,6 +113,7 @@ export function Builder({ funnelId, onBack }: { funnelId: string; onBack: () => 
       description: 'Descrição do diagnóstico...',
       minScore: 0,
       maxScore: 100,
+      ctas: [],
       createdAt: new Date().toISOString()
     });
   };
@@ -1107,6 +1108,37 @@ const DiagnosisCard = ({ diagnosis, funnelId }: { diagnosis: Diagnosis; funnelId
     updateDoc(doc(db, 'funnels', funnelId, 'diagnoses', diagnosis.id), data);
   };
 
+  const ctas = diagnosis.ctas && diagnosis.ctas.length > 0
+    ? diagnosis.ctas
+    : diagnosis.cta
+      ? [{ id: 'legacy-cta', type: 'custom' as const, text: diagnosis.cta.text, url: diagnosis.cta.url }]
+      : [];
+
+  const updateCtas = (nextCtas: { id: string; type: 'custom' | 'whatsapp' | 'purchase' | 'video'; text: string; url: string }[]) => {
+    update({ ctas: nextCtas, cta: undefined });
+  };
+
+  const addCta = () => {
+    updateCtas([
+      ...ctas,
+      {
+        id: Math.random().toString(36).slice(2, 9),
+        type: 'custom',
+        text: 'Saiba mais',
+        url: ''
+      }
+    ]);
+  };
+
+  const updateCta = (ctaId: string, data: Partial<{ type: 'custom' | 'whatsapp' | 'purchase' | 'video'; text: string; url: string }>) => {
+    const nextCtas = ctas.map((cta) => (cta.id === ctaId ? { ...cta, ...data } : cta));
+    updateCtas(nextCtas);
+  };
+
+  const removeCta = (ctaId: string) => {
+    updateCtas(ctas.filter((cta) => cta.id !== ctaId));
+  };
+
   const deleteDiagnosis = async () => {
     await deleteDoc(doc(db, 'funnels', funnelId, 'diagnoses', diagnosis.id));
     setShowDeleteConfirm(false);
@@ -1152,6 +1184,52 @@ const DiagnosisCard = ({ diagnosis, funnelId }: { diagnosis: Diagnosis; funnelId
           <label className="text-[10px] font-bold uppercase text-slate-500">Score Máximo</label>
           <Input type="number" value={diagnosis.maxScore} onChange={(e) => update({ maxScore: Number(e.target.value) })} />
         </div>
+      </div>
+
+      <div className="space-y-3 rounded-lg border border-slate-200 p-3">
+        <div className="flex items-center justify-between">
+          <label className="text-[10px] font-bold uppercase text-slate-500">CTAs do Diagnóstico</label>
+          <Button onClick={addCta} variant="secondary" className="h-7 px-2 text-[11px]">
+            <Plus className="mr-1 h-3 w-3" />
+            Adicionar CTA
+          </Button>
+        </div>
+
+        {ctas.length === 0 ? (
+          <p className="text-xs text-slate-400">Nenhum CTA configurado. Adicione botões para WhatsApp, compra, vídeo ou link customizado.</p>
+        ) : (
+          <div className="space-y-3">
+            {ctas.map((cta) => (
+              <div key={cta.id} className="grid gap-2 rounded-md border border-slate-200 p-2 sm:grid-cols-12">
+                <select
+                  value={cta.type}
+                  onChange={(e) => updateCta(cta.id, { type: e.target.value as 'custom' | 'whatsapp' | 'purchase' | 'video' })}
+                  className="rounded-lg border border-slate-200 px-2 py-2 text-xs sm:col-span-3"
+                >
+                  <option value="custom">Link</option>
+                  <option value="whatsapp">WhatsApp</option>
+                  <option value="purchase">Compra</option>
+                  <option value="video">Vídeo</option>
+                </select>
+                <Input
+                  value={cta.text}
+                  onChange={(e) => updateCta(cta.id, { text: e.target.value })}
+                  placeholder="Texto do botão"
+                  className="sm:col-span-3"
+                />
+                <Input
+                  value={cta.url}
+                  onChange={(e) => updateCta(cta.id, { url: e.target.value })}
+                  placeholder="https://..."
+                  className="sm:col-span-5"
+                />
+                <Button onClick={() => removeCta(cta.id)} variant="ghost" className="text-red-500 hover:bg-red-50 sm:col-span-1">
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </Card>
   );

@@ -99,6 +99,13 @@ export interface Diagnosis {
   minScore: number;
   maxScore: number;
   imageUrl?: string;
+  ctas?: {
+    id: string;
+    type: 'custom' | 'whatsapp' | 'purchase' | 'video';
+    text: string;
+    url: string;
+  }[];
+  // Legacy single CTA support
   cta?: {
     text: string;
     url: string;

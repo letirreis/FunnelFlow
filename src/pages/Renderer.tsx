@@ -387,6 +387,13 @@ export function Renderer({ slug }: { slug: string }) {
 
   const currentQuestion = questions[currentQuestionIdx];
   const progress = questions.length > 0 ? ((currentQuestionIdx + 1) / questions.length) * 100 : 0;
+  const diagnosisCtas = finalDiagnosis
+    ? finalDiagnosis.ctas && finalDiagnosis.ctas.length > 0
+      ? finalDiagnosis.ctas
+      : finalDiagnosis.cta
+        ? [{ id: 'legacy-cta', type: 'custom' as const, text: finalDiagnosis.cta.text, url: finalDiagnosis.cta.url }]
+        : []
+    : [];
 
   const brandingStyles = {
     backgroundColor: funnel.branding?.backgroundColor || '#ffffff',
@@ -673,14 +680,20 @@ export function Renderer({ slug }: { slug: string }) {
                 <p className="text-lg leading-relaxed opacity-80 whitespace-pre-wrap">{finalDiagnosis.description}</p>
               </Card>
 
-              {finalDiagnosis.cta && (
-                <Button 
-                  onClick={() => window.open(finalDiagnosis.cta?.url, '_blank')}
-                  className="h-14 px-10 text-lg rounded-full shadow-lg"
-                  style={{ backgroundColor: 'var(--primary)' }}
-                >
-                  {finalDiagnosis.cta.text}
-                </Button>
+              {diagnosisCtas.length > 0 && (
+                <div className="flex flex-wrap items-center justify-center gap-3">
+                  {diagnosisCtas.map((cta) => (
+                    <Button
+                      key={cta.id}
+                      onClick={() => window.open(cta.url, '_blank', 'noopener,noreferrer')}
+                      className="h-12 px-6 text-base rounded-full shadow-lg"
+                      style={{ backgroundColor: 'var(--primary)' }}
+                      disabled={!cta.url}
+                    >
+                      {cta.text || 'Acessar'}
+                    </Button>
+                  ))}
+                </div>
               )}
               
               <p className="mt-8 text-sm text-slate-400">Score Final: {totalScore}</p>
