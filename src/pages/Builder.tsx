@@ -306,6 +306,18 @@ export function Builder({ funnelId, onBack }: { funnelId: string; onBack: () => 
                       O evento <strong>Lead</strong> será disparado automaticamente quando o visitante preencher o formulário de dados.
                     </p>
                   </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Meta Conversions API — Token de Acesso</label>
+                    <Input
+                      value={funnel.metaConversionsApiToken || ''}
+                      onChange={(e) => updateDoc(doc(db, 'funnels', funnelId), { metaConversionsApiToken: e.target.value })}
+                      placeholder="EAAxxxxxxxxxxxxxxx..."
+                      type="password"
+                    />
+                    <p className="text-xs text-slate-500">
+                      Opcional. Quando preenchido junto com o Pixel ID, o evento <strong>Lead</strong> também será enviado diretamente ao servidor da Meta (Conversions API), melhorando a precisão do rastreamento mesmo quando o pixel do navegador é bloqueado por ad-blockers.
+                    </p>
+                  </div>
                 </Card>
               </section>
 

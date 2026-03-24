@@ -83,6 +83,8 @@ export interface Funnel {
   scoring?: ScoringConfig;
   /** Meta Pixel ID for tracking Lead events when the lead form is submitted. */
   metaPixelId?: string;
+  /** Meta Conversions API access token for server-side Lead event tracking. */
+  metaConversionsApiToken?: string;
   createdAt: string;
   updatedAt: string;
 }

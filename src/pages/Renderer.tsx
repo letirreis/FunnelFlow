@@ -50,6 +50,57 @@ function fireMetaPixelEvent(event: string, params?: Record<string, any>) {
   }
 }
 
+// ─── Meta Conversions API helpers ─────────────────────────────────────────────
+
+async function sha256Hex(value: string): Promise<string> {
+  const data = new TextEncoder().encode(value.trim().toLowerCase());
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hash))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+async function fireMetaConversionsEvent(
+  pixelId: string,
+  accessToken: string,
+  eventName: string,
+  userData: { email?: string; phone?: string },
+  eventSourceUrl?: string
+): Promise<void> {
+  try {
+    const hashedEmail = userData.email ? await sha256Hex(userData.email) : undefined;
+    const hashedPhone = userData.phone
+      ? await sha256Hex(userData.phone.replace(/\D/g, ''))
+      : undefined;
+
+    const payload = {
+      data: [
+        {
+          event_name: eventName,
+          event_time: Math.floor(Date.now() / 1000),
+          action_source: 'website',
+          event_source_url: eventSourceUrl || window.location.href,
+          user_data: {
+            ...(hashedEmail ? { em: hashedEmail } : {}),
+            ...(hashedPhone ? { ph: hashedPhone } : {}),
+          },
+        },
+      ],
+    };
+
+    await fetch(
+      `https://graph.facebook.com/v19.0/${pixelId}/events`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...payload, access_token: accessToken }),
+      }
+    );
+  } catch (err) {
+    console.warn('Meta Conversions API call failed:', err);
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function Renderer({ slug }: { slug: string }) {
@@ -342,6 +393,16 @@ export function Renderer({ slug }: { slug: string }) {
         // Fire Meta Pixel Lead event if pixel is configured
         if (funnel.metaPixelId) {
           fireMetaPixelEvent('Lead');
+        }
+
+        // Fire Meta Conversions API Lead event if both Pixel ID and access token are configured
+        if (funnel.metaPixelId && funnel.metaConversionsApiToken) {
+          fireMetaConversionsEvent(
+            funnel.metaPixelId,
+            funnel.metaConversionsApiToken,
+            'Lead',
+            { email: leadForm.email, phone: leadForm.phone }
+          );
         }
         
         setStep('questions');
