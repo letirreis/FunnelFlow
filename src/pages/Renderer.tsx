@@ -18,6 +18,7 @@ export function Renderer({ slug }: { slug: string }) {
   const [currentQuestionIdx, setCurrentQuestionIdx] = useState(0);
   const [answers, setAnswers] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
+  const [dataLoading, setDataLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [leadForm, setLeadForm] = useState({ name: '', email: '', phone: '', consent: false });
@@ -68,18 +69,19 @@ export function Renderer({ slug }: { slug: string }) {
     };
     setTracking(utms);
 
-    const fetchData = async () => {
+    // Phase 1: load only the funnel document so the start screen renders fast
+    const fetchFunnel = async () => {
       try {
         const qFunnel = query(collection(db, 'funnels'), where('slug', '==', slug));
         const sFunnel = await getDocs(qFunnel);
         if (sFunnel.empty) throw new Error('Funil não encontrado');
-        
+
         const fDoc = sFunnel.docs[0];
         const fData = { id: fDoc.id, ...fDoc.data() } as Funnel;
         setFunnel(fData);
 
-        // Increment views
-        await updateDoc(doc(db, 'funnels', fData.id), {
+        // Increment views (non-blocking)
+        updateDoc(doc(db, 'funnels', fData.id), {
           views: (fData.views || 0) + 1
         }).catch(err => console.warn('Failed to increment views:', err));
 
@@ -89,29 +91,48 @@ export function Renderer({ slug }: { slug: string }) {
           setVariant(assignedVariant);
         }
 
-        const qQuestions = query(collection(db, 'funnels', fData.id, 'questions'), orderBy('order', 'asc'));
-        const sQuestions = await getDocs(qQuestions);
-        const qData = sQuestions.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question));
-        setQuestions(qData);
-
-        const opts: Record<string, AnswerOption[]> = {};
-        for (const q of qData) {
-          const sOpts = await getDocs(collection(db, 'funnels', fData.id, 'questions', q.id, 'options'));
-          opts[q.id] = sOpts.docs.map(doc => ({ id: doc.id, ...doc.data() } as AnswerOption));
-        }
-        setOptions(opts);
-
-        const sDiagnoses = await getDocs(collection(db, 'funnels', fData.id, 'diagnoses'));
-        setDiagnoses(sDiagnoses.docs.map(doc => ({ id: doc.id, ...doc.data() } as Diagnosis)));
-
+        // Show start screen immediately
         setLoading(false);
       } catch (err: any) {
         setError(err.message);
         setLoading(false);
       }
     };
-    fetchData();
+    fetchFunnel();
   }, [slug]);
+
+  // Phase 2: load heavy data (questions, options, diagnoses) in the background
+  // after the start screen has rendered, so it doesn't block the initial paint
+  useEffect(() => {
+    if (!funnel?.id) return;
+
+    const fetchHeavyData = async () => {
+      try {
+        const qQuestions = query(collection(db, 'funnels', funnel.id, 'questions'), orderBy('order', 'asc'));
+        const sQuestions = await getDocs(qQuestions);
+        const qData = sQuestions.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question));
+        setQuestions(qData);
+
+        const opts: Record<string, AnswerOption[]> = {};
+        for (const q of qData) {
+          const sOpts = await getDocs(collection(db, 'funnels', funnel.id, 'questions', q.id, 'options'));
+          opts[q.id] = sOpts.docs.map(doc => ({ id: doc.id, ...doc.data() } as AnswerOption));
+        }
+        setOptions(opts);
+
+        const sDiagnoses = await getDocs(collection(db, 'funnels', funnel.id, 'diagnoses'));
+        setDiagnoses(sDiagnoses.docs.map(doc => ({ id: doc.id, ...doc.data() } as Diagnosis)));
+      } catch (err: any) {
+        console.error('Failed to load funnel data:', err);
+      } finally {
+        setDataLoading(false);
+      }
+    };
+
+    // Defer to the next tick so the start screen paints first
+    const timeoutId = setTimeout(fetchHeavyData, 0);
+    return () => clearTimeout(timeoutId);
+  }, [funnel?.id]);
 
   const [disqualified, setDisqualified] = useState(false);
   const [forcedDiagnosisId, setForcedDiagnosisId] = useState<string | null>(null);
@@ -472,6 +493,11 @@ export function Renderer({ slug }: { slug: string }) {
           )}
 
           {step === 'questions' && (
+            dataLoading ? (
+              <motion.div key="questions-loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-center py-20">
+                <div className="h-8 w-8 animate-spin rounded-full border-4 border-t-transparent" style={{ borderColor: 'var(--primary)', borderTopColor: 'transparent' }} />
+              </motion.div>
+            ) : (
             <motion.div 
               key="questions"
               initial={{ opacity: 0, x: 20 }}
@@ -582,6 +608,7 @@ export function Renderer({ slug }: { slug: string }) {
                 )}
               </div>
             </motion.div>
+            )
           )}
 
           {step === 'lead' && (
