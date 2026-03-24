@@ -1557,18 +1557,24 @@ const DiagnosisCard = ({ diagnosis, funnelId }: { diagnosis: Diagnosis; funnelId
         </div>
       </div>
 
-      <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-200 p-3">
-        <input
-          type="checkbox"
-          checked={diagnosis.showConfetti !== false}
-          onChange={(e) => update({ showConfetti: e.target.checked })}
-          className="h-4 w-4 rounded border-slate-300 accent-blue-600"
-        />
-        <div>
-          <span className="text-[10px] font-bold uppercase text-slate-500">🎉 Mostrar Confete</span>
-          <p className="text-[10px] text-slate-400">Exibe animação de confete ao concluir este diagnóstico</p>
-        </div>
-      </label>
+      <div className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2">
+        <label className="text-xs font-medium text-slate-600">🎉 Mostrar confete neste diagnóstico</label>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={diagnosis.showConfetti !== false}
+          onClick={() => update({ showConfetti: diagnosis.showConfetti !== false ? false : true })}
+          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${
+            diagnosis.showConfetti !== false ? 'bg-blue-500' : 'bg-slate-200'
+          }`}
+        >
+          <span
+            className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
+              diagnosis.showConfetti !== false ? 'translate-x-[18px]' : 'translate-x-[3px]'
+            }`}
+          />
+        </button>
+      </div>
 
       <div className="space-y-3 rounded-lg border border-slate-200 p-3">
         <div className="flex items-center justify-between">

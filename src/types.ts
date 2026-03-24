@@ -140,7 +140,7 @@ export interface Diagnosis {
   minScore: number;
   maxScore: number;
   imageUrl?: string;
-  /** When false, confetti is suppressed for this diagnosis result. Defaults to true. */
+  /** Whether to show confetti animation when this diagnosis is the final result. Defaults to true. */
   showConfetti?: boolean;
   ctas?: {
     id: string;

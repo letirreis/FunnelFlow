@@ -743,7 +743,6 @@ export function Renderer({ slug }: { slug: string }) {
                 </div>
               )}
               
-              <p className="mt-8 text-sm text-slate-400">Score Final: {totalScore}</p>
             </motion.div>
           )}
         </AnimatePresence>
