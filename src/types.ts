@@ -1,5 +1,39 @@
 export type UserRole = 'admin' | 'colaborador' | 'infra';
 
+// ─── Scoring / KO ────────────────────────────────────────────────────────────
+
+export type KoConditionType =
+  | 'answer_equals'
+  | 'answer_not_equals'
+  | 'answer_in'
+  | 'score_gt'
+  | 'score_lt'
+  | 'score_gte'
+  | 'score_lte';
+
+export interface KoCondition {
+  type: KoConditionType;
+  /** Required for answer_* conditions */
+  questionId?: string;
+  /** For answer_* the option id (or array for answer_in); for score_* a number */
+  value: any;
+}
+
+export interface KoRule {
+  id: string;
+  description?: string;
+  matchType: 'all' | 'any';
+  conditions: KoCondition[];
+}
+
+export interface ScoringConfig {
+  mode: 'simple' | 'weighted_average';
+  /** ID of the diagnosis to show when KO triggers */
+  disqualifiedDiagnosisId?: string;
+  /** JSON-rule based KO evaluation (no eval — evaluated client-side via evaluateKo) */
+  koRules?: KoRule[];
+}
+
 export interface UserProfile {
   uid: string;
   email: string;
@@ -45,6 +79,8 @@ export interface Funnel {
   integrations?: {
     webhooks: WebhookConfig[];
   };
+  /** Optional advanced scoring configuration. Absent = existing simple-sum behaviour. */
+  scoring?: ScoringConfig;
   createdAt: string;
   updatedAt: string;
 }
@@ -76,6 +112,11 @@ export interface Question {
   buttonText?: string;
   layout?: 'grid' | 'list';
   rules?: LogicRule[];
+  /** Per-question scoring metadata for weighted_average mode */
+  scoring?: {
+    /** Multiplier for this question's score. Defaults to 1. */
+    weight?: number;
+  };
 }
 
 export interface AnswerOption {
@@ -141,6 +182,8 @@ export interface Lead {
   utm_term?: string;
   referrer?: string;
   device?: string;
+  isDisqualified?: boolean;
+  disqualifiedReason?: string | null;
   createdAt: string;
 }
 
@@ -151,6 +194,8 @@ export interface Response {
   answersJson: string;
   score: number;
   diagnosisId: string;
+  isDisqualified?: boolean;
+  disqualifiedReason?: string | null;
   utm_source?: string;
   utm_medium?: string;
   utm_campaign?: string;

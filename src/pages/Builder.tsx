@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { doc, onSnapshot, collection, query, orderBy, addDoc, updateDoc, deleteDoc, getDocs, getDoc, deleteField } from 'firebase/firestore';
 import { signOut } from 'firebase/auth';
 import { auth, db } from '../firebase';
-import { Funnel, Question, AnswerOption, Diagnosis, LogicRule } from '../types';
+import { Funnel, Question, AnswerOption, Diagnosis, LogicRule, ScoringConfig, KoRule, KoCondition } from '../types';
 import { Button, Card, Input } from '../components/ui';
 import { ArrowLeft, Plus, Settings, BarChart2, Users, Save, Trash2, ChevronRight, ChevronDown, Image as ImageIcon, LogOut, Globe, TrendingUp, Layout, GripVertical, Copy, ChevronUp, Upload } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -27,6 +27,9 @@ import { LeadsList } from '../components/LeadsList';
 import { IntegrationsTab } from '../components/IntegrationsTab';
 import { AnalyticsTab } from '../components/AnalyticsTab';
 import { UserProfile } from '../types';
+
+const MIN_QUESTION_WEIGHT = 1;
+const MAX_QUESTION_WEIGHT = 10;
 
 export function Builder({ funnelId, onBack }: { funnelId: string; onBack: () => void }) {
   const [funnel, setFunnel] = useState<Funnel | null>(null);
@@ -225,6 +228,7 @@ export function Builder({ funnelId, onBack }: { funnelId: string; onBack: () => 
                       allQuestions={questions}
                       allDiagnoses={diagnoses}
                       onUpload={handleFileUpload}
+                      scoringMode={funnel.scoring?.mode || 'simple'}
                     />
                   ))}
                 </SortableContext>
@@ -248,8 +252,11 @@ export function Builder({ funnelId, onBack }: { funnelId: string; onBack: () => 
 
         {activeTab === 'diagnoses' && (
           <div className="p-8">
-            <div className="mx-auto max-w-4xl space-y-4">
-              <div className="flex items-center justify-between mb-6">
+            <div className="mx-auto max-w-4xl space-y-6">
+              {/* Scoring Configuration */}
+              <ScoringConfigPanel funnel={funnel} funnelId={funnelId} diagnoses={diagnoses} />
+
+              <div className="flex items-center justify-between">
                 <h2 className="text-xl font-bold">Diagnósticos</h2>
                 <Button onClick={addDiagnosis}>
                   <Plus className="mr-2 h-4 w-4" />
@@ -488,6 +495,7 @@ interface SortableQuestionBlockProps {
   allQuestions: Question[];
   allDiagnoses: Diagnosis[];
   onUpload: (e: React.ChangeEvent<HTMLInputElement>, callback: (url: string) => void) => void;
+  scoringMode: 'simple' | 'weighted_average';
   key?: any;
 }
 
@@ -499,7 +507,8 @@ function SortableQuestionBlock({
   onToggle,
   allQuestions,
   allDiagnoses,
-  onUpload
+  onUpload,
+  scoringMode
 }: SortableQuestionBlockProps) {
   const {
     attributes,
@@ -529,6 +538,7 @@ function SortableQuestionBlock({
         allQuestions={allQuestions}
         allDiagnoses={allDiagnoses}
         onUpload={onUpload}
+        scoringMode={scoringMode}
       />
     </div>
   );
@@ -543,7 +553,8 @@ function QuestionBlock({
   dragHandleProps,
   allQuestions,
   allDiagnoses,
-  onUpload
+  onUpload,
+  scoringMode
 }: { 
   question: Question; 
   index: number; 
@@ -554,6 +565,7 @@ function QuestionBlock({
   allQuestions: Question[];
   allDiagnoses: Diagnosis[];
   onUpload: (e: React.ChangeEvent<HTMLInputElement>, callback: (url: string) => void) => void;
+  scoringMode: 'simple' | 'weighted_average';
 }) {
   const [options, setOptions] = useState<AnswerOption[]>([]);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -733,6 +745,23 @@ function QuestionBlock({
                     value={question.buttonText || ''} 
                     onChange={(e) => updateQuestion({ buttonText: e.target.value })} 
                     placeholder="Ex: Continuar, Entendi, Próximo..."
+                  />
+                </div>
+              )}
+
+              {scoringMode === 'weighted_average' && question.type !== 'message' && (
+                <div className="flex items-center gap-4 rounded-lg border border-blue-100 bg-blue-50 p-3">
+                  <div className="flex-1">
+                    <label className="text-xs font-bold uppercase text-blue-600">Peso da Pergunta (Média Ponderada)</label>
+                    <p className="text-[10px] text-blue-500 mt-0.5">Perguntas com peso 2 valem o dobro no cálculo do score final.</p>
+                  </div>
+                  <Input
+                    type="number"
+                    min={MIN_QUESTION_WEIGHT}
+                    max={MAX_QUESTION_WEIGHT}
+                    value={question.scoring?.weight ?? MIN_QUESTION_WEIGHT}
+                    onChange={(e) => updateQuestion({ scoring: { ...question.scoring, weight: Math.max(MIN_QUESTION_WEIGHT, Number(e.target.value)) } })}
+                    className="w-20 text-center bg-white"
                   />
                 </div>
               )}
@@ -1098,6 +1127,234 @@ function QuestionBlock({
           </motion.div>
         )}
       </AnimatePresence>
+    </Card>
+  );
+}
+
+// ─── ScoringConfigPanel ──────────────────────────────────────────────────────
+
+function ScoringConfigPanel({
+  funnel,
+  funnelId,
+  diagnoses
+}: {
+  funnel: Funnel;
+  funnelId: string;
+  diagnoses: Diagnosis[];
+}) {
+  const scoring = funnel.scoring;
+  const mode = scoring?.mode || 'simple';
+  const koRules = scoring?.koRules || [];
+  const disqualifiedDiagnosisId = scoring?.disqualifiedDiagnosisId || '';
+
+  const updateScoring = (patch: Partial<ScoringConfig>) => {
+    updateDoc(doc(db, 'funnels', funnelId), {
+      scoring: { ...scoring, ...patch }
+    });
+  };
+
+  const addKoRule = () => {
+    const newRule: KoRule = {
+      id: crypto.randomUUID(),
+      description: 'Nova regra KO',
+      matchType: 'all',
+      conditions: []
+    };
+    updateScoring({ koRules: [...koRules, newRule] });
+  };
+
+  const updateKoRule = (id: string, patch: Partial<KoRule>) => {
+    updateScoring({ koRules: koRules.map(r => r.id === id ? { ...r, ...patch } : r) });
+  };
+
+  const removeKoRule = (id: string) => {
+    updateScoring({ koRules: koRules.filter(r => r.id !== id) });
+  };
+
+  const addKoCondition = (ruleId: string) => {
+    const newCond: KoCondition = { type: 'answer_equals', questionId: '', value: '' };
+    const rule = koRules.find(r => r.id === ruleId);
+    if (!rule) return;
+    updateKoRule(ruleId, { conditions: [...rule.conditions, newCond] });
+  };
+
+  const updateKoCondition = (ruleId: string, idx: number, patch: Partial<KoCondition>) => {
+    const rule = koRules.find(r => r.id === ruleId);
+    if (!rule) return;
+    const newConds = rule.conditions.map((c, i) => i === idx ? { ...c, ...patch } : c);
+    updateKoRule(ruleId, { conditions: newConds });
+  };
+
+  const removeKoCondition = (ruleId: string, idx: number) => {
+    const rule = koRules.find(r => r.id === ruleId);
+    if (!rule) return;
+    updateKoRule(ruleId, { conditions: rule.conditions.filter((_, i) => i !== idx) });
+  };
+
+  return (
+    <Card className="p-6 space-y-6 border-2 border-blue-100">
+      <div>
+        <h3 className="text-base font-bold text-slate-900">⚙️ Configuração de Pontuação</h3>
+        <p className="text-xs text-slate-500 mt-1">Defina como o score é calculado e configure regras de desqualificação (KO).</p>
+      </div>
+
+      {/* Mode selector */}
+      <div className="space-y-2">
+        <label className="text-xs font-bold uppercase text-slate-500">Modelo de Pontuação</label>
+        <div className="flex gap-3">
+          {(['simple', 'weighted_average'] as const).map(m => (
+            <button
+              key={m}
+              onClick={() => updateScoring({ mode: m })}
+              className={cn(
+                "flex-1 rounded-lg border px-4 py-3 text-sm font-medium transition-all text-left",
+                mode === m
+                  ? "border-blue-500 bg-blue-50 text-blue-700"
+                  : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+              )}
+            >
+              {m === 'simple' ? (
+                <>
+                  <div className="font-semibold">Soma Simples</div>
+                  <div className="text-xs opacity-70 mt-0.5">Soma todos os pontos das respostas</div>
+                </>
+              ) : (
+                <>
+                  <div className="font-semibold">Média Ponderada</div>
+                  <div className="text-xs opacity-70 mt-0.5">Cada pergunta pode ter um peso diferente</div>
+                </>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* KO Rules */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <label className="text-xs font-bold uppercase text-slate-500">Regras de Desqualificação (KO)</label>
+            <p className="text-[10px] text-slate-400 mt-0.5">O lead completa o funil normalmente, mas recebe o diagnóstico de desqualificado.</p>
+          </div>
+          <Button onClick={addKoRule} variant="secondary" className="h-7 px-3 text-xs">
+            <Plus className="mr-1 h-3 w-3" /> Nova Regra
+          </Button>
+        </div>
+
+        {koRules.length > 0 && (
+          <div className="space-y-2">
+            <label className="text-xs font-bold uppercase text-slate-500">Diagnóstico de Desqualificado</label>
+            <select
+              className="w-full rounded-lg border border-slate-200 p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              value={disqualifiedDiagnosisId}
+              onChange={(e) => updateScoring({ disqualifiedDiagnosisId: e.target.value })}
+            >
+              <option value="">Selecionar diagnóstico...</option>
+              {diagnoses.map(d => (
+                <option key={d.id} value={d.id}>{d.title}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {koRules.map(rule => (
+          <div key={rule.id} className="rounded-xl border border-orange-200 bg-orange-50 p-4 space-y-3">
+            <div className="flex items-center gap-3">
+              <Input
+                value={rule.description || ''}
+                onChange={(e) => updateKoRule(rule.id, { description: e.target.value })}
+                placeholder="Descrição da regra..."
+                className="flex-1 bg-white text-sm"
+              />
+              <select
+                className="rounded-lg border border-slate-200 bg-white p-2 text-xs"
+                value={rule.matchType}
+                onChange={(e) => updateKoRule(rule.id, { matchType: e.target.value as 'all' | 'any' })}
+              >
+                <option value="all">Todas (E)</option>
+                <option value="any">Qualquer (OU)</option>
+              </select>
+              <Button
+                onClick={() => removeKoRule(rule.id)}
+                variant="ghost"
+                className="h-8 w-8 p-0 text-red-400 hover:text-red-600 hover:bg-red-50"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <div className="space-y-2">
+              {rule.conditions.map((cond, idx) => (
+                <div key={idx} className="flex items-center gap-2 rounded-lg border border-orange-100 bg-white p-2">
+                  <select
+                    className="rounded border border-slate-200 p-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-500"
+                    value={cond.type}
+                    onChange={(e) => {
+                      const newType = e.target.value as KoCondition['type'];
+                      const isAnswerType = newType.startsWith('answer_');
+                      const wasAnswerType = cond.type.startsWith('answer_');
+                      // Preserve questionId when staying in answer_* types; preserve value when type is compatible
+                      updateKoCondition(rule.id, idx, {
+                        type: newType,
+                        questionId: isAnswerType ? (cond.questionId || '') : undefined,
+                        value: isAnswerType === wasAnswerType ? cond.value : ''
+                      });
+                    }}
+                  >
+                    <option value="answer_equals">Resposta igual a</option>
+                    <option value="answer_not_equals">Resposta diferente de</option>
+                    <option value="answer_in">Resposta está em</option>
+                    <option value="score_gt">Score maior que</option>
+                    <option value="score_lt">Score menor que</option>
+                    <option value="score_gte">Score maior ou igual a</option>
+                    <option value="score_lte">Score menor ou igual a</option>
+                  </select>
+                  {cond.type.startsWith('answer_') && (
+                    <Input
+                      value={cond.questionId || ''}
+                      onChange={(e) => updateKoCondition(rule.id, idx, { questionId: e.target.value })}
+                      placeholder="ID da pergunta"
+                      className="flex-1 text-xs h-8"
+                    />
+                  )}
+                  <Input
+                    value={Array.isArray(cond.value) ? cond.value.join(',') : cond.value}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      const val = cond.type === 'answer_in'
+                        ? raw.split(',').map(s => s.trim()).filter(Boolean)
+                        : cond.type.startsWith('score_') ? Number(raw) : raw;
+                      updateKoCondition(rule.id, idx, { value: val });
+                    }}
+                    placeholder={cond.type === 'answer_in' ? 'id1,id2,...' : cond.type.startsWith('score_') ? '0' : 'valor'}
+                    className="flex-1 text-xs h-8"
+                  />
+                  <Button
+                    onClick={() => removeKoCondition(rule.id, idx)}
+                    variant="ghost"
+                    className="h-8 w-8 p-0 text-red-400 hover:text-red-600 shrink-0"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </div>
+              ))}
+              <Button
+                onClick={() => addKoCondition(rule.id)}
+                variant="ghost"
+                className="h-7 w-full border border-dashed border-orange-200 text-[11px] text-orange-600 hover:bg-orange-100"
+              >
+                <Plus className="mr-1 h-3 w-3" /> Adicionar Condição
+              </Button>
+            </div>
+          </div>
+        ))}
+
+        {koRules.length === 0 && (
+          <p className="text-xs text-slate-400 rounded-lg border border-dashed border-slate-200 p-4 text-center">
+            Nenhuma regra KO configurada. Clique em "Nova Regra" para adicionar.
+          </p>
+        )}
+      </div>
     </Card>
   );
 }

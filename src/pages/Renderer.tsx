@@ -6,6 +6,7 @@ import { Button, Card, Input } from '../components/ui';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronRight, ChevronLeft, CheckCircle2, Layout, ArrowRight, XCircle } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { calculateScore, evaluateKo } from '../lib/scoring';
 
 export function Renderer({ slug }: { slug: string }) {
   const [funnel, setFunnel] = useState<Funnel | null>(null);
@@ -282,25 +283,34 @@ export function Renderer({ slug }: { slug: string }) {
 
   const finishFunnel = async () => {
     try {
-      // Calculate Score
-      let score = 0;
-      Object.entries(answers).forEach(([qId, val]) => {
-        const qOptions = options[qId] || [];
-        const selected = qOptions.find(o => o.id === val);
-        if (selected) score += selected.score;
-      });
+      // Calculate Score (simple sum or weighted average based on funnel config)
+      const score = calculateScore(funnel!.scoring, answers, questions, options);
       setTotalScore(score);
 
-      // Find Diagnosis (Check if forced first)
+      // Evaluate KO rules (funnel-level, JSON-logic, no eval)
+      const koResult = evaluateKo(funnel!.scoring?.koRules, answers, score);
+      const isDisqualified = koResult.triggered;
+      const disqualifiedReason = koResult.reason ?? null;
+
+      // Find Diagnosis
       let diag: Diagnosis | undefined;
-      if (forcedDiagnosisId) {
+
+      if (isDisqualified) {
+        // 1. Try configured disqualified diagnosis
+        const disqId = funnel!.scoring?.disqualifiedDiagnosisId;
+        if (disqId) diag = diagnoses.find(d => d.id === disqId);
+        // 2. Fallback: diagnosis whose title contains the Portuguese word for "disqualified"
+        if (!diag) diag = diagnoses.find(d => d.title.toLowerCase().includes('desqualificado'));
+        // 3. Last resort: first diagnosis
+        if (!diag) diag = diagnoses[0];
+      } else if (forcedDiagnosisId) {
         diag = diagnoses.find(d => d.id === forcedDiagnosisId);
       }
-      
+
       if (!diag) {
         diag = diagnoses.find(d => score >= d.minScore && score <= d.maxScore) || diagnoses[0];
       }
-      
+
       setFinalDiagnosis(diag || null);
 
       // Update Lead to Completed
@@ -309,6 +319,8 @@ export function Renderer({ slug }: { slug: string }) {
           status: 'completed',
           finalScore: score,
           diagnosisId: diag?.id || 'none',
+          isDisqualified,
+          disqualifiedReason,
           updatedAt: new Date().toISOString()
         }).catch(err => handleFirestoreError(err, 'update', `leads/${leadId}`));
       }
@@ -320,6 +332,8 @@ export function Renderer({ slug }: { slug: string }) {
         answersJson: JSON.stringify(answers),
         score,
         diagnosisId: diag?.id || 'none',
+        isDisqualified,
+        disqualifiedReason,
         ...tracking,
         createdAt: new Date().toISOString()
       }).catch(err => handleFirestoreError(err, 'create', 'responses'));
@@ -356,6 +370,8 @@ export function Renderer({ slug }: { slug: string }) {
             },
             results: {
               score,
+              isDisqualified,
+              disqualifiedReason,
               diagnosis: {
                 title: diag?.title || 'N/A',
                 description: diag?.description || ''
