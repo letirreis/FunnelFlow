@@ -412,7 +412,9 @@ export function Renderer({ slug }: { slug: string }) {
       }
 
       setStep('result');
-      confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
+      if (diag?.showConfetti !== false) {
+        confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
+      }
     } catch (err: any) {
       console.error('Finish funnel failed:', err);
     }
@@ -739,7 +741,6 @@ export function Renderer({ slug }: { slug: string }) {
                 </div>
               )}
               
-              <p className="mt-8 text-sm text-slate-400">Score Final: {totalScore}</p>
             </motion.div>
           )}
         </AnimatePresence>
