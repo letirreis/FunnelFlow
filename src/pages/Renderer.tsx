@@ -18,6 +18,7 @@ export function Renderer({ slug }: { slug: string }) {
   const [currentQuestionIdx, setCurrentQuestionIdx] = useState(0);
   const [answers, setAnswers] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
+  const [contentLoading, setContentLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [leadForm, setLeadForm] = useState({ name: '', email: '', phone: '', consent: false });
@@ -68,20 +69,16 @@ export function Renderer({ slug }: { slug: string }) {
     };
     setTracking(utms);
 
-    const fetchData = async () => {
+    // Phase 1: load only funnel metadata to show the start screen quickly
+    const fetchFunnel = async () => {
       try {
         const qFunnel = query(collection(db, 'funnels'), where('slug', '==', slug));
         const sFunnel = await getDocs(qFunnel);
         if (sFunnel.empty) throw new Error('Funil não encontrado');
-        
+
         const fDoc = sFunnel.docs[0];
         const fData = { id: fDoc.id, ...fDoc.data() } as Funnel;
         setFunnel(fData);
-
-        // Increment views
-        await updateDoc(doc(db, 'funnels', fData.id), {
-          views: (fData.views || 0) + 1
-        }).catch(err => console.warn('Failed to increment views:', err));
 
         // A/B Testing Logic
         if (fData.abTesting?.enabled) {
@@ -89,28 +86,54 @@ export function Renderer({ slug }: { slug: string }) {
           setVariant(assignedVariant);
         }
 
-        const qQuestions = query(collection(db, 'funnels', fData.id, 'questions'), orderBy('order', 'asc'));
-        const sQuestions = await getDocs(qQuestions);
-        const qData = sQuestions.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question));
-        setQuestions(qData);
-
-        const opts: Record<string, AnswerOption[]> = {};
-        for (const q of qData) {
-          const sOpts = await getDocs(collection(db, 'funnels', fData.id, 'questions', q.id, 'options'));
-          opts[q.id] = sOpts.docs.map(doc => ({ id: doc.id, ...doc.data() } as AnswerOption));
-        }
-        setOptions(opts);
-
-        const sDiagnoses = await getDocs(collection(db, 'funnels', fData.id, 'diagnoses'));
-        setDiagnoses(sDiagnoses.docs.map(doc => ({ id: doc.id, ...doc.data() } as Diagnosis)));
-
+        // Unblock the start screen immediately
         setLoading(false);
+
+        // Increment views in the background (non-blocking)
+        updateDoc(doc(db, 'funnels', fData.id), {
+          views: (fData.views || 0) + 1
+        }).catch(err => console.warn('Failed to increment views:', err));
+
+        // Phase 2: load questions, options, and diagnoses in the background
+        const fetchContent = async () => {
+          try {
+            const qQuestions = query(collection(db, 'funnels', fData.id, 'questions'), orderBy('order', 'asc'));
+            const sQuestions = await getDocs(qQuestions);
+            const qData = sQuestions.docs.map(d => ({ id: d.id, ...d.data() } as Question));
+            setQuestions(qData);
+
+            const [optResults, sDiagnoses] = await Promise.all([
+              Promise.all(
+                qData.map(q =>
+                  getDocs(collection(db, 'funnels', fData.id, 'questions', q.id, 'options')).then(
+                    snap => ({ qId: q.id, opts: snap.docs.map(d => ({ id: d.id, ...d.data() } as AnswerOption)) })
+                  )
+                )
+              ),
+              getDocs(collection(db, 'funnels', fData.id, 'diagnoses')),
+            ]);
+
+            const opts: Record<string, AnswerOption[]> = {};
+            for (const { qId, opts: qOpts } of optResults) {
+              opts[qId] = qOpts;
+            }
+            setOptions(opts);
+            setDiagnoses(sDiagnoses.docs.map(d => ({ id: d.id, ...d.data() } as Diagnosis)));
+          } catch (err: any) {
+            console.error('Failed to load funnel content:', err);
+          } finally {
+            setContentLoading(false);
+          }
+        };
+
+        // Defer content loading to after the first paint
+        setTimeout(fetchContent, 0);
       } catch (err: any) {
         setError(err.message);
         setLoading(false);
       }
     };
-    fetchData();
+    fetchFunnel();
   }, [slug]);
 
   const [disqualified, setDisqualified] = useState(false);
@@ -462,11 +485,21 @@ export function Renderer({ slug }: { slug: string }) {
               </p>
               <Button 
                 onClick={() => setStep('lead')} 
-                className="h-14 px-10 text-lg rounded-full shadow-lg"
+                disabled={contentLoading}
+                className="h-14 px-10 text-lg rounded-full shadow-lg disabled:opacity-60"
                 style={{ backgroundColor: 'var(--primary)' }}
               >
-                Começar Diagnóstico
-                <ArrowRight className="ml-2 h-5 w-5" />
+                {contentLoading ? (
+                  <>
+                    <div className="mr-2 h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                    Carregando...
+                  </>
+                ) : (
+                  <>
+                    Começar Diagnóstico
+                    <ArrowRight className="ml-2 h-5 w-5" />
+                  </>
+                )}
               </Button>
             </motion.div>
           )}

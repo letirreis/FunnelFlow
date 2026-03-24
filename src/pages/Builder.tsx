@@ -251,8 +251,8 @@ export function Builder({ funnelId, onBack }: { funnelId: string; onBack: () => 
         )}
 
         {activeTab === 'diagnoses' && (
-          <div className="p-8">
-            <div className="mx-auto max-w-4xl space-y-6">
+          <div className="h-full overflow-y-auto p-8">
+            <div className="mx-auto max-w-4xl space-y-6 pb-20">
               {/* Scoring Configuration */}
               <ScoringConfigPanel funnel={funnel} funnelId={funnelId} diagnoses={diagnoses} />
 
@@ -276,8 +276,8 @@ export function Builder({ funnelId, onBack }: { funnelId: string; onBack: () => 
           <LeadsList funnelId={funnelId} />
         )}
         {activeTab === 'settings' && (
-          <div className="p-8">
-            <div className="mx-auto max-w-2xl space-y-8">
+          <div className="h-full overflow-y-auto p-8">
+            <div className="mx-auto max-w-2xl space-y-8 pb-20">
               <section className="space-y-4">
                 <h2 className="text-xl font-bold">Configurações Gerais</h2>
                 <Card className="p-6 space-y-4">

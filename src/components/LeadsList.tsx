@@ -78,7 +78,7 @@ export function LeadsList({ funnelId }: { funnelId: string }) {
   if (loading) return <div className="p-8 text-center">Carregando leads...</div>;
 
   return (
-    <div className="p-8">
+    <div className="h-full overflow-y-auto p-8">
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-slate-900">Leads Capturados</h2>
