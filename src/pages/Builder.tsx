@@ -254,7 +254,7 @@ export function Builder({ funnelId, onBack }: { funnelId: string; onBack: () => 
           <div className="h-full overflow-y-auto p-8">
             <div className="mx-auto max-w-4xl space-y-6 pb-20">
               {/* Scoring Configuration */}
-              <ScoringConfigPanel funnel={funnel} funnelId={funnelId} diagnoses={diagnoses} />
+              <ScoringConfigPanel funnel={funnel} funnelId={funnelId} diagnoses={diagnoses} questions={questions} />
 
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-bold">Diagnósticos</h2>
@@ -1136,16 +1136,56 @@ function QuestionBlock({
 function ScoringConfigPanel({
   funnel,
   funnelId,
-  diagnoses
+  diagnoses,
+  questions
 }: {
   funnel: Funnel;
   funnelId: string;
   diagnoses: Diagnosis[];
+  questions: Question[];
 }) {
   const scoring = funnel.scoring;
   const mode = scoring?.mode || 'simple';
   const koRules = scoring?.koRules || [];
   const disqualifiedDiagnosisId = scoring?.disqualifiedDiagnosisId || '';
+
+  // Cache of loaded answer options, keyed by questionId.
+  // undefined = not yet loaded; [] = loaded but empty.
+  const [questionOptions, setQuestionOptions] = useState<Record<string, AnswerOption[]>>({});
+
+  // Fetches and caches answer options for a given question. No-op if already loading/loaded.
+  const loadOptionsForQuestion = (questionId: string) => {
+    if (!questionId || questionId in questionOptions) return;
+    // Optimistically mark as loading (empty array sentinel) to prevent duplicate fetches.
+    setQuestionOptions(prev => {
+      if (questionId in prev) return prev;
+      return { ...prev, [questionId]: [] };
+    });
+    getDocs(collection(db, 'funnels', funnelId, 'questions', questionId, 'options')).then(snap => {
+      setQuestionOptions(prev => ({
+        ...prev,
+        [questionId]: snap.docs.map(d => ({ id: d.id, ...d.data() } as AnswerOption))
+      }));
+    }).catch(() => {
+      // Question may have been deleted; keep the empty-array sentinel so we don't retry.
+    });
+  };
+
+  // On mount and whenever koRules change, pre-load options for all referenced questionIds.
+  useEffect(() => {
+    const questionIds = new Set<string>();
+    for (const rule of koRules) {
+      for (const cond of rule.conditions) {
+        if (cond.questionId && cond.type.startsWith('answer_')) {
+          questionIds.add(cond.questionId);
+        }
+      }
+    }
+    questionIds.forEach(loadOptionsForQuestion);
+  // loadOptionsForQuestion is stable within the component lifecycle; koRules and funnelId
+  // are the true external dependencies here.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [koRules, funnelId]);
 
   const updateScoring = (patch: Partial<ScoringConfig>) => {
     updateDoc(doc(db, 'funnels', funnelId), {
@@ -1284,60 +1324,134 @@ function ScoringConfigPanel({
             </div>
 
             <div className="space-y-2">
-              {rule.conditions.map((cond, idx) => (
-                <div key={idx} className="flex items-center gap-2 rounded-lg border border-orange-100 bg-white p-2">
-                  <select
-                    className="rounded border border-slate-200 p-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-500"
-                    value={cond.type}
-                    onChange={(e) => {
-                      const newType = e.target.value as KoCondition['type'];
-                      const isAnswerType = newType.startsWith('answer_');
-                      const wasAnswerType = cond.type.startsWith('answer_');
-                      // Preserve questionId when staying in answer_* types; preserve value when type is compatible
-                      updateKoCondition(rule.id, idx, {
-                        type: newType,
-                        questionId: isAnswerType ? (cond.questionId || '') : undefined,
-                        value: isAnswerType === wasAnswerType ? cond.value : ''
-                      });
-                    }}
-                  >
-                    <option value="answer_equals">Resposta igual a</option>
-                    <option value="answer_not_equals">Resposta diferente de</option>
-                    <option value="answer_in">Resposta está em</option>
-                    <option value="score_gt">Score maior que</option>
-                    <option value="score_lt">Score menor que</option>
-                    <option value="score_gte">Score maior ou igual a</option>
-                    <option value="score_lte">Score menor ou igual a</option>
-                  </select>
-                  {cond.type.startsWith('answer_') && (
-                    <Input
-                      value={cond.questionId || ''}
-                      onChange={(e) => updateKoCondition(rule.id, idx, { questionId: e.target.value })}
-                      placeholder="ID da pergunta"
-                      className="flex-1 text-xs h-8"
-                    />
-                  )}
-                  <Input
-                    value={Array.isArray(cond.value) ? cond.value.join(',') : cond.value}
-                    onChange={(e) => {
-                      const raw = e.target.value;
-                      const val = cond.type === 'answer_in'
-                        ? raw.split(',').map(s => s.trim()).filter(Boolean)
-                        : cond.type.startsWith('score_') ? Number(raw) : raw;
-                      updateKoCondition(rule.id, idx, { value: val });
-                    }}
-                    placeholder={cond.type === 'answer_in' ? 'id1,id2,...' : cond.type.startsWith('score_') ? '0' : 'valor'}
-                    className="flex-1 text-xs h-8"
-                  />
-                  <Button
-                    onClick={() => removeKoCondition(rule.id, idx)}
-                    variant="ghost"
-                    className="h-8 w-8 p-0 text-red-400 hover:text-red-600 shrink-0"
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </Button>
-                </div>
-              ))}
+              {rule.conditions.map((cond, idx) => {
+                const isAnswerType = cond.type.startsWith('answer_');
+                const optionsLoaded = cond.questionId ? cond.questionId in questionOptions : false;
+                const loadedOptions = optionsLoaded ? questionOptions[cond.questionId!] : [];
+
+                return (
+                  <div key={idx} className="flex flex-wrap items-start gap-2 rounded-lg border border-orange-100 bg-white p-2">
+                    {/* Condition type selector */}
+                    <select
+                      className="rounded border border-slate-200 p-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-500"
+                      value={cond.type}
+                      onChange={(e) => {
+                        const newType = e.target.value as KoCondition['type'];
+                        const isNewAnswerType = newType.startsWith('answer_');
+                        const wasAnswerType = cond.type.startsWith('answer_');
+                        // Reset value when switching between answer_* and score_* families,
+                        // or when switching into answer_in (which expects an array).
+                        const crossFamily = isNewAnswerType !== wasAnswerType;
+                        const resetValue = crossFamily ? (newType === 'answer_in' ? [] : '') : cond.value;
+                        updateKoCondition(rule.id, idx, {
+                          type: newType,
+                          questionId: isNewAnswerType ? (cond.questionId || '') : undefined,
+                          value: resetValue
+                        });
+                      }}
+                    >
+                      <option value="answer_equals">Resposta igual a</option>
+                      <option value="answer_not_equals">Resposta diferente de</option>
+                      <option value="answer_in">Resposta está em</option>
+                      <option value="score_gt">Score maior que</option>
+                      <option value="score_lt">Score menor que</option>
+                      <option value="score_gte">Score maior ou igual a</option>
+                      <option value="score_lte">Score menor ou igual a</option>
+                    </select>
+
+                    {/* Question dropdown (for answer_* conditions) */}
+                    {isAnswerType && (
+                      <select
+                        className="rounded border border-slate-200 p-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-500 flex-1 min-w-[140px]"
+                        value={cond.questionId || ''}
+                        onChange={(e) => {
+                          const newQId = e.target.value;
+                          updateKoCondition(rule.id, idx, {
+                            questionId: newQId,
+                            value: cond.type === 'answer_in' ? [] : ''
+                          });
+                          loadOptionsForQuestion(newQId);
+                        }}
+                      >
+                        <option value="">Selecionar pergunta...</option>
+                        {questions.map(q => (
+                          <option key={q.id} value={q.id}>{q.text || `Pergunta ${q.order + 1}`}</option>
+                        ))}
+                      </select>
+                    )}
+
+                    {/* Value: option dropdown for answer_* or number input for score_* */}
+                    {isAnswerType ? (
+                      cond.type === 'answer_in' ? (
+                        optionsLoaded && loadedOptions.length > 0 ? (
+                          <select
+                            multiple
+                            className="rounded border border-slate-200 p-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-500 flex-1 min-w-[140px] min-h-[56px]"
+                            value={Array.isArray(cond.value) ? cond.value : []}
+                            onChange={(e) => {
+                              const selected = Array.from(e.target.selectedOptions as HTMLCollectionOf<HTMLOptionElement>).map(o => o.value);
+                              updateKoCondition(rule.id, idx, { value: selected });
+                            }}
+                          >
+                            {loadedOptions.map(o => (
+                              <option key={o.id} value={o.id}>{o.text}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <Input
+                            value={Array.isArray(cond.value) ? cond.value.join(',') : String(cond.value ?? '')}
+                            onChange={(e) => {
+                              updateKoCondition(rule.id, idx, {
+                                value: e.target.value.split(',').map(s => s.trim()).filter(Boolean)
+                              });
+                            }}
+                            placeholder={cond.questionId && !optionsLoaded ? 'Carregando...' : 'id1,id2,...'}
+                            className="flex-1 text-xs h-8 min-w-[120px]"
+                            readOnly={!!cond.questionId && !optionsLoaded}
+                          />
+                        )
+                      ) : (
+                        optionsLoaded && loadedOptions.length > 0 ? (
+                          <select
+                            className="rounded border border-slate-200 p-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-500 flex-1 min-w-[140px]"
+                            value={typeof cond.value === 'string' ? cond.value : ''}
+                            onChange={(e) => updateKoCondition(rule.id, idx, { value: e.target.value })}
+                          >
+                            <option value="">Selecionar opção...</option>
+                            {loadedOptions.map(o => (
+                              <option key={o.id} value={o.id}>{o.text}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <Input
+                            value={typeof cond.value === 'string' ? cond.value : String(cond.value ?? '')}
+                            onChange={(e) => updateKoCondition(rule.id, idx, { value: e.target.value })}
+                            placeholder={cond.questionId && !optionsLoaded ? 'Carregando opções...' : 'Selecione uma pergunta'}
+                            className="flex-1 text-xs h-8 min-w-[120px]"
+                            readOnly={!!cond.questionId && !optionsLoaded}
+                          />
+                        )
+                      )
+                    ) : (
+                      <Input
+                        type="number"
+                        value={cond.value}
+                        onChange={(e) => updateKoCondition(rule.id, idx, { value: Number(e.target.value) })}
+                        placeholder="0"
+                        className="flex-1 text-xs h-8"
+                      />
+                    )}
+
+                    <Button
+                      onClick={() => removeKoCondition(rule.id, idx)}
+                      variant="ghost"
+                      className="h-8 w-8 p-0 text-red-400 hover:text-red-600 shrink-0"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </div>
+                );
+              })}
               <Button
                 onClick={() => addKoCondition(rule.id)}
                 variant="ghost"

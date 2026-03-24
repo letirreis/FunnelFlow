@@ -412,7 +412,9 @@ export function Renderer({ slug }: { slug: string }) {
       }
 
       setStep('result');
-      if (diag?.showConfetti !== false) {
+      // Never show confetti for disqualified (KO) results.
+      // For regular results, respect the per-diagnosis showConfetti flag (defaults to true).
+      if (!isDisqualified && diag?.showConfetti !== false) {
         confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
       }
     } catch (err: any) {
