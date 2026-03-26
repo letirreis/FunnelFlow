@@ -303,7 +303,7 @@ export function Builder({ funnelId, onBack }: { funnelId: string; onBack: () => 
                       placeholder="Ex: 1234567890"
                     />
                     <p className="text-xs text-slate-500">
-                      O evento <strong>Lead</strong> será disparado automaticamente quando o visitante preencher o formulário de dados.
+                      Os eventos <strong>Lead</strong> (preenchimento do formulário) e <strong>CompleteRegistration</strong> (conclusão do diagnóstico) serão disparados automaticamente.
                     </p>
                   </div>
                   <div className="space-y-2">
@@ -315,7 +315,7 @@ export function Builder({ funnelId, onBack }: { funnelId: string; onBack: () => 
                       type="password"
                     />
                     <p className="text-xs text-slate-500">
-                      Opcional. Quando preenchido junto com o Pixel ID, o evento <strong>Lead</strong> também será enviado diretamente ao servidor da Meta (Conversions API), melhorando a precisão do rastreamento mesmo quando o pixel do navegador é bloqueado por ad-blockers.
+                      Opcional. Quando preenchido junto com o Pixel ID, os eventos <strong>Lead</strong> e <strong>CompleteRegistration</strong> também serão enviados diretamente ao servidor da Meta (Conversions API), melhorando a precisão do rastreamento mesmo quando o pixel do navegador é bloqueado por ad-blockers.
                     </p>
                   </div>
                 </Card>
