@@ -292,6 +292,7 @@ export function Renderer({ slug }: { slug: string }) {
         if (action.type === 'disqualify') {
           setDisqualified(true);
           setStep('result');
+          finishFunnel(true); // persist data + fire pixel in background
           return;
         }
         if (action.type === 'force_diagnosis' && action.targetId) {
@@ -316,6 +317,7 @@ export function Renderer({ slug }: { slug: string }) {
       if (type === 'disqualify') {
         setDisqualified(true);
         setStep('result');
+        finishFunnel(true); // persist data + fire pixel in background
         return;
       }
       
@@ -417,16 +419,19 @@ export function Renderer({ slug }: { slug: string }) {
     }
   };
 
-  const finishFunnel = async () => {
+  // isDirectDisqualify=true is passed when a question rule immediately disqualifies the user
+  // (bypassing KO scoring). In that case the caller already set the UI state, so we only
+  // need to persist data and fire pixel events without touching React state again.
+  const finishFunnel = async (isDirectDisqualify: boolean = false) => {
     try {
       // Calculate Score (simple sum or weighted average based on funnel config)
       const score = calculateScore(funnel!.scoring, answers, questions, options);
-      setTotalScore(score);
+      if (!isDirectDisqualify) setTotalScore(score);
 
       // Evaluate KO rules (funnel-level, JSON-logic, no eval)
       const koResult = evaluateKo(funnel!.scoring?.koRules, answers, score);
-      const isDisqualified = koResult.triggered;
-      const disqualifiedReason = koResult.reason ?? null;
+      const isDisqualified = isDirectDisqualify || koResult.triggered;
+      const disqualifiedReason = isDirectDisqualify ? 'direct_disqualify' : (koResult.reason ?? null);
 
       // Find Diagnosis
       let diag: Diagnosis | undefined;
@@ -447,7 +452,8 @@ export function Renderer({ slug }: { slug: string }) {
         diag = diagnoses.find(d => score >= d.minScore && score <= d.maxScore) || diagnoses[0];
       }
 
-      setFinalDiagnosis(diag || null);
+      // Only update UI state when the caller hasn't already handled it
+      if (!isDirectDisqualify) setFinalDiagnosis(diag || null);
 
       // Update Lead to Completed
       if (leadId) {
@@ -526,11 +532,29 @@ export function Renderer({ slug }: { slug: string }) {
         }
       }
 
-      setStep('result');
-      // Never show confetti for disqualified (KO) results.
-      // For regular results, respect the per-diagnosis showConfetti flag (defaults to true).
-      if (!isDisqualified && diag?.showConfetti !== false) {
-        confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
+      // Fire Meta Pixel CompleteRegistration event when the funnel is fully completed
+      if (funnel?.metaPixelId) {
+        fireMetaPixelEvent('CompleteRegistration');
+      }
+
+      // Fire Meta Conversions API CompleteRegistration event
+      if (funnel?.metaPixelId && funnel?.metaConversionsApiToken) {
+        fireMetaConversionsEvent(
+          funnel.metaPixelId,
+          funnel.metaConversionsApiToken,
+          'CompleteRegistration',
+          { email: leadForm.email, phone: leadForm.phone }
+        );
+      }
+
+      // Only advance UI state when the caller hasn't already done so
+      if (!isDirectDisqualify) {
+        setStep('result');
+        // Never show confetti for disqualified (KO) results.
+        // For regular results, respect the per-diagnosis showConfetti flag (defaults to true).
+        if (!isDisqualified && diag?.showConfetti !== false) {
+          confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
+        }
       }
     } catch (err: any) {
       console.error('Finish funnel failed:', err);
