@@ -27,11 +27,15 @@ function initMetaPixel(pixelId: string) {
   _initializedPixelIds.add(pixelId);
 
   if (!window.fbq) {
-    // Standard Meta Pixel base code (minified inline) — only load the script once
+    // Standard Meta Pixel base code — create the fbq queue wrapper and load fbevents.js
     /* eslint-disable */
-    (function(f: any, b: any, e: any, v: any, n?: any, t?: any, s?: any) {
-      n = f.fbq = function(...args: any[]) {
-        n.callMethod ? n.callMethod.apply(n, args) : n.queue.push(args);
+    (function(f: any, b: any, e: any, v: any, n?: any, t?: any) {
+      n = f.fbq = function() {
+        // Use arguments object (not rest params) to match the format Meta's fbevents.js
+        // expects when it processes the queue on load.
+        n.callMethod
+          ? n.callMethod.apply(n, arguments)
+          : n.queue.push(arguments);
       };
       if (!f._fbq) f._fbq = n;
       n.push = n;
@@ -41,21 +45,32 @@ function initMetaPixel(pixelId: string) {
       t = b.createElement(e);
       t.async = true;
       t.src = v;
-      s = b.getElementsByTagName(e)[0];
-      s.parentNode.insertBefore(t, s);
+      t.onerror = function() {
+        console.warn('Meta Pixel: failed to load fbevents.js — events will not be sent.');
+      };
+      // Append to <head> — more reliable than insertBefore(firstScript)
+      b.head.appendChild(t);
     })(window, document, 'script', 'https://connect.facebook.net/en_US/fbevents.js');
     /* eslint-enable */
   }
 
-  // Always initialise this pixel ID and fire PageView even when window.fbq was
+  // Always initialize this pixel ID and fire PageView even when window.fbq was
   // already present (e.g. set by the Meta Pixel Helper extension or another pixel).
   window.fbq!('init', pixelId);
   window.fbq!('track', 'PageView');
 }
 
 function fireMetaPixelEvent(event: string, params?: Record<string, any>, eventId?: string) {
-  if (window.fbq) {
-    window.fbq('track', event, params, eventId ? { eventID: eventId } : undefined);
+  if (!window.fbq) return;
+  // Always pass an object for params (not undefined) when eventId is provided,
+  // because passing explicit undefined as the 3rd arg can cause fbevents.js to
+  // silently skip processing the event in some versions.
+  if (eventId) {
+    window.fbq('track', event, params || {}, { eventID: eventId });
+  } else if (params) {
+    window.fbq('track', event, params);
+  } else {
+    window.fbq('track', event);
   }
 }
 
@@ -196,9 +211,13 @@ export function Renderer({ slug }: { slug: string }) {
           views: (fData.views || 0) + 1
         }).catch(err => console.warn('Failed to increment views:', err));
 
-        // Initialize Meta Pixel if configured
+        // Initialize Meta Pixel if configured (failures are non-fatal)
         if (fData.metaPixelId) {
-          initMetaPixel(fData.metaPixelId);
+          try {
+            initMetaPixel(fData.metaPixelId);
+          } catch (pixelErr) {
+            console.warn('Meta Pixel initialization failed:', pixelErr);
+          }
         }
 
         // A/B Testing Logic
