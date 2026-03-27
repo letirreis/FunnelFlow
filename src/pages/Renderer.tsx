@@ -17,16 +17,14 @@ declare global {
   }
 }
 
-// Track which pixel IDs have already been initialized so we never double-fire
-// PageView, while still allowing init when window.fbq was set by another script
-// (e.g. the Meta Pixel Helper extension) before our code ran.
-const _initializedPixelIds = new Set<string>();
+// Track whether the fbevents.js script has been injected so we don't load it
+// multiple times per page session. fbevents.js is a single shared script that
+// handles all pixel IDs — it only needs to be loaded once.
+let _fbqScriptLoaded = false;
 
 function initMetaPixel(pixelId: string) {
-  if (_initializedPixelIds.has(pixelId)) return; // This pixel ID is already set up
-  _initializedPixelIds.add(pixelId);
-
-  if (!window.fbq) {
+  if (!window.fbq && !_fbqScriptLoaded) {
+    _fbqScriptLoaded = true;
     // Standard Meta Pixel base code — create the fbq queue wrapper and load fbevents.js
     /* eslint-disable */
     (function(f: any, b: any, e: any, v: any, n?: any, t?: any) {
@@ -54,10 +52,14 @@ function initMetaPixel(pixelId: string) {
     /* eslint-enable */
   }
 
-  // Always initialize this pixel ID and fire PageView even when window.fbq was
-  // already present (e.g. set by the Meta Pixel Helper extension or another pixel).
-  window.fbq!('init', pixelId);
-  window.fbq!('track', 'PageView');
+  // Initialize this pixel ID and fire PageView on every call — this ensures PageView
+  // fires for every funnel visit, including when the Renderer is remounted within an
+  // SPA session (e.g. user navigates away and back without a full page refresh).
+  // If fbevents.js is still loading, these calls are queued and replayed once it loads.
+  // If window.fbq is not available (e.g. fbevents.js blocked and window.fbq cleared),
+  // the onerror handler above will have logged a warning; optional chaining prevents a crash.
+  window.fbq?.('init', pixelId);
+  window.fbq?.('track', 'PageView');
 }
 
 function fireMetaPixelEvent(event: string, params?: Record<string, any>, eventId?: string) {
