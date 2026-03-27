@@ -53,9 +53,9 @@ function initMetaPixel(pixelId: string) {
   window.fbq!('track', 'PageView');
 }
 
-function fireMetaPixelEvent(event: string, params?: Record<string, any>) {
+function fireMetaPixelEvent(event: string, params?: Record<string, any>, eventId?: string) {
   if (window.fbq) {
-    window.fbq('track', event, params);
+    window.fbq('track', event, params, eventId ? { eventID: eventId } : undefined);
   }
 }
 
@@ -74,6 +74,7 @@ async function fireMetaConversionsEvent(
   accessToken: string,
   eventName: string,
   userData: { email?: string; phone?: string },
+  eventId?: string,
   eventSourceUrl?: string
 ): Promise<void> {
   try {
@@ -87,24 +88,30 @@ async function fireMetaConversionsEvent(
         {
           event_name: eventName,
           event_time: Math.floor(Date.now() / 1000),
+          ...(eventId ? { event_id: eventId } : {}),
           action_source: 'website',
           event_source_url: eventSourceUrl || window.location.href,
           user_data: {
             ...(hashedEmail ? { em: hashedEmail } : {}),
             ...(hashedPhone ? { ph: hashedPhone } : {}),
+            client_user_agent: navigator.userAgent,
           },
         },
       ],
     };
 
-    await fetch(
-      `https://graph.facebook.com/v19.0/${pixelId}/events`,
+    const response = await fetch(
+      `https://graph.facebook.com/v21.0/${pixelId}/events`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...payload, access_token: accessToken }),
       }
     );
+    if (!response.ok) {
+      const errBody = await response.json().catch(() => ({}));
+      console.warn('Meta Conversions API error:', errBody);
+    }
   } catch (err) {
     console.warn('Meta Conversions API call failed:', err);
   }
@@ -403,17 +410,19 @@ export function Renderer({ slug }: { slug: string }) {
 
         // Fire Meta Pixel Lead event if pixel is configured
         if (funnel.metaPixelId) {
-          fireMetaPixelEvent('Lead');
-        }
+          const leadEventId = crypto.randomUUID();
+          fireMetaPixelEvent('Lead', undefined, leadEventId);
 
-        // Fire Meta Conversions API Lead event if both Pixel ID and access token are configured
-        if (funnel.metaPixelId && funnel.metaConversionsApiToken) {
-          fireMetaConversionsEvent(
-            funnel.metaPixelId,
-            funnel.metaConversionsApiToken,
-            'Lead',
-            { email: leadForm.email, phone: leadForm.phone }
-          );
+          // Fire Meta Conversions API Lead event if both Pixel ID and access token are configured
+          if (funnel.metaConversionsApiToken) {
+            fireMetaConversionsEvent(
+              funnel.metaPixelId,
+              funnel.metaConversionsApiToken,
+              'Lead',
+              { email: leadForm.email, phone: leadForm.phone },
+              leadEventId
+            );
+          }
         }
         
         setStep('questions');
@@ -543,17 +552,19 @@ export function Renderer({ slug }: { slug: string }) {
 
       // Fire Meta Pixel CompleteRegistration event when the funnel is fully completed
       if (funnel?.metaPixelId) {
-        fireMetaPixelEvent('CompleteRegistration');
-      }
+        const completeEventId = crypto.randomUUID();
+        fireMetaPixelEvent('CompleteRegistration', undefined, completeEventId);
 
-      // Fire Meta Conversions API CompleteRegistration event
-      if (funnel?.metaPixelId && funnel?.metaConversionsApiToken) {
-        fireMetaConversionsEvent(
-          funnel.metaPixelId,
-          funnel.metaConversionsApiToken,
-          'CompleteRegistration',
-          { email: leadForm.email, phone: leadForm.phone }
-        );
+        // Fire Meta Conversions API CompleteRegistration event
+        if (funnel?.metaConversionsApiToken) {
+          fireMetaConversionsEvent(
+            funnel.metaPixelId,
+            funnel.metaConversionsApiToken,
+            'CompleteRegistration',
+            { email: leadForm.email, phone: leadForm.phone },
+            completeEventId
+          );
+        }
       }
 
       // Only advance UI state when the caller hasn't already done so
