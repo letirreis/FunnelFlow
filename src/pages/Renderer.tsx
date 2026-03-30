@@ -17,12 +17,18 @@ declare global {
   }
 }
 
+// Tracks pixel IDs that have already been initialized in this page session.
+// Prevents duplicate fbq('init') + fbq('track','PageView') calls caused by
+// React StrictMode double-invoking effects or by component re-mounts.
+const _initializedPixels = new Set<string>();
+
 function initMetaPixel(pixelId: string) {
   // Trim pixel ID to handle accidental whitespace from copy/paste.
   const trimmedId = pixelId.trim();
   if (!trimmedId) return;
 
-  // Standard Meta Pixel base code — only inject once (fbq stub sets window.fbq synchronously).
+  // Inject the fbevents.js stub only once per page (window.fbq is set synchronously
+  // by the IIFE below, so subsequent calls skip this block entirely).
   if (!window.fbq) {
     /* eslint-disable */
     (function(f: any, b: any, e: any, v: any, n?: any, t?: any, s?: any) {
@@ -49,6 +55,12 @@ function initMetaPixel(pixelId: string) {
     })(window, document, 'script', 'https://connect.facebook.net/en_US/fbevents.js');
     /* eslint-enable */
   }
+
+  // Only call fbq('init') and fire PageView once per pixel ID per page load.
+  // Re-initialising the same pixel ID causes Meta to count duplicate events and
+  // triggers the "Pixel code installed multiple times" warning.
+  if (_initializedPixels.has(trimmedId)) return;
+  _initializedPixels.add(trimmedId);
 
   window.fbq?.('init', trimmedId);
   window.fbq?.('track', 'PageView');
