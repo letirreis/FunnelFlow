@@ -17,20 +17,12 @@ declare global {
   }
 }
 
-// Track whether the fbevents.js script has been injected so we don't load it
-// multiple times per page session. fbevents.js is a single shared script that
-// handles all pixel IDs — it only needs to be loaded once.
-let _fbqScriptLoaded = false;
-
 function initMetaPixel(pixelId: string) {
-  if (!window.fbq && !_fbqScriptLoaded) {
-    _fbqScriptLoaded = true;
-    // Standard Meta Pixel base code — create the fbq queue wrapper and load fbevents.js
+  // Standard Meta Pixel base code — only inject once (fbq stub sets window.fbq synchronously).
+  if (!window.fbq) {
     /* eslint-disable */
-    (function(f: any, b: any, e: any, v: any, n?: any, t?: any) {
+    (function(f: any, b: any, e: any, v: any, n?: any, t?: any, s?: any) {
       n = f.fbq = function() {
-        // Use arguments object (not rest params) to match the format Meta's fbevents.js
-        // expects when it processes the queue on load.
         n.callMethod
           ? n.callMethod.apply(n, arguments)
           : n.queue.push(arguments);
@@ -43,21 +35,12 @@ function initMetaPixel(pixelId: string) {
       t = b.createElement(e);
       t.async = true;
       t.src = v;
-      t.onerror = function() {
-        console.warn('Meta Pixel: failed to load fbevents.js — events will not be sent.');
-      };
-      // Append to <head> — more reliable than insertBefore(firstScript)
-      b.head.appendChild(t);
+      s = b.getElementsByTagName(e)[0];
+      s.parentNode.insertBefore(t, s);
     })(window, document, 'script', 'https://connect.facebook.net/en_US/fbevents.js');
     /* eslint-enable */
   }
 
-  // Initialize this pixel ID and fire PageView on every call — this ensures PageView
-  // fires for every funnel visit, including when the Renderer is remounted within an
-  // SPA session (e.g. user navigates away and back without a full page refresh).
-  // If fbevents.js is still loading, these calls are queued and replayed once it loads.
-  // If window.fbq is not available (e.g. fbevents.js blocked and window.fbq cleared),
-  // the onerror handler above will have logged a warning; optional chaining prevents a crash.
   window.fbq?.('init', pixelId);
   window.fbq?.('track', 'PageView');
 }
