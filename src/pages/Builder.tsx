@@ -31,6 +31,20 @@ import { UserProfile } from '../types';
 const MIN_QUESTION_WEIGHT = 1;
 const MAX_QUESTION_WEIGHT = 10;
 
+// Fields that should NOT trigger dirty state when they change (counters, timestamps)
+const IGNORE_DIRTY_FIELDS = ['views', 'leadsCount', 'updatedAt', 'savedAt', 'createdAt'];
+
+function isSubstantiveChange(prev: Funnel, next: Funnel): boolean {
+  const strip = (f: Funnel) => {
+    const copy = { ...f } as Record<string, unknown>;
+    IGNORE_DIRTY_FIELDS.forEach(k => delete copy[k]);
+    return copy;
+  };
+  const sortedStringify = (obj: Record<string, unknown>) =>
+    JSON.stringify(obj, Object.keys(obj).sort());
+  return sortedStringify(strip(prev)) !== sortedStringify(strip(next));
+}
+
 export function Builder({ funnelId, onBack }: { funnelId: string; onBack: () => void }) {
   const [funnel, setFunnel] = useState<Funnel | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -38,6 +52,13 @@ export function Builder({ funnelId, onBack }: { funnelId: string; onBack: () => 
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [activeTab, setActiveTab] = useState<'builder' | 'diagnoses' | 'settings' | 'leads' | 'integrations' | 'analytics'>('builder');
   const [expandedQuestionId, setExpandedQuestionId] = useState<string | null>(null);
+  const [isDirty, setIsDirty] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Refs for tracking initial load and preventing false dirty state
+  const loadedRef = React.useRef({ funnel: false, questions: false, diagnoses: false });
+  const skipFunnelDirtyRef = React.useRef(false);
+  const prevFunnelRef = React.useRef<Funnel | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -47,6 +68,12 @@ export function Builder({ funnelId, onBack }: { funnelId: string; onBack: () => 
   );
 
   useEffect(() => {
+    // Reset tracking refs when funnelId changes
+    loadedRef.current = { funnel: false, questions: false, diagnoses: false };
+    prevFunnelRef.current = null;
+    skipFunnelDirtyRef.current = false;
+    setIsDirty(false);
+
     const fetchProfile = async () => {
       if (auth.currentUser) {
         const snap = await getDoc(doc(db, 'users', auth.currentUser.uid));
@@ -55,18 +82,39 @@ export function Builder({ funnelId, onBack }: { funnelId: string; onBack: () => 
     };
     fetchProfile();
 
-    const unsubFunnel = onSnapshot(doc(db, 'funnels', funnelId), (doc) => {
-      setFunnel({ id: doc.id, ...doc.data() } as Funnel);
+    const unsubFunnel = onSnapshot(doc(db, 'funnels', funnelId), (docSnap) => {
+      const newFunnel = { id: docSnap.id, ...docSnap.data() } as Funnel;
+      if (loadedRef.current.funnel) {
+        if (skipFunnelDirtyRef.current) {
+          skipFunnelDirtyRef.current = false;
+        } else if (prevFunnelRef.current && isSubstantiveChange(prevFunnelRef.current, newFunnel)) {
+          setIsDirty(true);
+        }
+      } else {
+        loadedRef.current.funnel = true;
+      }
+      prevFunnelRef.current = newFunnel;
+      setFunnel(newFunnel);
     });
 
     const qQuestions = query(collection(db, 'funnels', funnelId, 'questions'), orderBy('order', 'asc'));
     const unsubQuestions = onSnapshot(qQuestions, (snapshot) => {
       setQuestions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question)));
+      if (loadedRef.current.questions) {
+        setIsDirty(true);
+      } else {
+        loadedRef.current.questions = true;
+      }
     });
 
     const qDiagnoses = query(collection(db, 'funnels', funnelId, 'diagnoses'));
     const unsubDiagnoses = onSnapshot(qDiagnoses, (snapshot) => {
       setDiagnoses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Diagnosis)));
+      if (loadedRef.current.diagnoses) {
+        setIsDirty(true);
+      } else {
+        loadedRef.current.diagnoses = true;
+      }
     });
 
     return () => {
@@ -121,13 +169,28 @@ export function Builder({ funnelId, onBack }: { funnelId: string; onBack: () => 
     });
   };
 
+  const saveFunnel = async () => {
+    setIsSaving(true);
+    skipFunnelDirtyRef.current = true;
+    try {
+      await updateDoc(doc(db, 'funnels', funnelId), {
+        savedAt: new Date().toISOString(),
+      });
+      setIsDirty(false);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const togglePublish = async () => {
     if (!funnel) return;
+    skipFunnelDirtyRef.current = true;
     const newStatus = funnel.status === 'published' ? 'draft' : 'published';
     await updateDoc(doc(db, 'funnels', funnelId), {
       status: newStatus,
       updatedAt: new Date().toISOString()
     });
+    setIsDirty(false);
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, callback: (url: string) => void) => {
@@ -189,13 +252,39 @@ export function Builder({ funnelId, onBack }: { funnelId: string; onBack: () => 
             ))}
           </nav>
           <Button onClick={openPreview} variant="secondary">Preview</Button>
+          {/* Status badge */}
+          {isDirty ? (
+            <span className="flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+              Não salvo
+            </span>
+          ) : funnel.status !== 'published' ? (
+            <span className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-500">
+              <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+              Salvo
+            </span>
+          ) : (
+            <span className="flex items-center gap-1.5 rounded-full border border-green-200 bg-green-50 px-3 py-1 text-xs font-medium text-green-700">
+              <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+              Publicado
+            </span>
+          )}
+          <Button
+            onClick={saveFunnel}
+            disabled={!isDirty || isSaving}
+            variant="secondary"
+            className="gap-1.5"
+          >
+            <Save className="h-4 w-4" />
+            {isSaving ? 'Salvando...' : 'Salvar'}
+          </Button>
           <Button 
             onClick={togglePublish}
             className={cn(
               funnel.status === 'published' ? "bg-green-600 hover:bg-green-700" : "bg-blue-600 hover:bg-blue-700"
             )}
           >
-            {funnel.status === 'published' ? 'Publicado' : 'Publicar'}
+            {funnel.status === 'published' ? 'Despublicar' : 'Publicar'}
           </Button>
           <div className="ml-2 h-8 w-px bg-slate-200" />
           <Button onClick={() => signOut(auth)} variant="ghost" className="p-2 text-slate-400 hover:text-red-600">
@@ -273,7 +362,9 @@ export function Builder({ funnelId, onBack }: { funnelId: string; onBack: () => 
         )}
 
         {activeTab === 'leads' && (
-          <LeadsList funnelId={funnelId} />
+          <div className="h-full overflow-y-auto">
+            <LeadsList funnelId={funnelId} />
+          </div>
         )}
         {activeTab === 'settings' && (
           <div className="p-8">

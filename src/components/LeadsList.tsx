@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy, deleteDoc, doc, writeBatch, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Lead } from '../types';
 import { Card, Input } from '../components/ui';
 import { format } from 'date-fns';
-import { Mail, Phone, Building, Download, Filter, X, Search } from 'lucide-react';
+import { Mail, Phone, Building, Download, Filter, X, Search, Trash2, AlertTriangle } from 'lucide-react';
 import { cn } from '../components/ui';
+
+const FIRESTORE_BATCH_LIMIT = 500;
 
 export function LeadsList({ funnelId }: { funnelId: string }) {
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -18,6 +20,9 @@ export function LeadsList({ funnelId }: { funnelId: string }) {
     utm_campaign: '',
   });
   const [showFilters, setShowFilters] = useState(false);
+  const [leadToDelete, setLeadToDelete] = useState<string | null>(null);
+  const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false);
+  const [isDeletingAll, setIsDeletingAll] = useState(false);
 
   useEffect(() => {
     const q = query(
@@ -75,6 +80,26 @@ export function LeadsList({ funnelId }: { funnelId: string }) {
     document.body.removeChild(link);
   };
 
+  const deleteLead = async (id: string) => {
+    await deleteDoc(doc(db, 'leads', id));
+    setLeadToDelete(null);
+  };
+
+  const deleteAllLeads = async () => {
+    setIsDeletingAll(true);
+    try {
+      const snap = await getDocs(query(collection(db, 'leads'), where('funnelId', '==', funnelId)));
+      for (let i = 0; i < snap.docs.length; i += FIRESTORE_BATCH_LIMIT) {
+        const batch = writeBatch(db);
+        snap.docs.slice(i, i + FIRESTORE_BATCH_LIMIT).forEach(d => batch.delete(d.ref));
+        await batch.commit();
+      }
+      setShowDeleteAllConfirm(false);
+    } finally {
+      setIsDeletingAll(false);
+    }
+  };
+
   if (loading) return <div className="p-8 text-center">Carregando leads...</div>;
 
   return (
@@ -85,6 +110,33 @@ export function LeadsList({ funnelId }: { funnelId: string }) {
           <p className="text-sm text-slate-500">{filteredLeads.length} de {leads.length} leads encontrados</p>
         </div>
         <div className="flex items-center gap-3">
+          {showDeleteAllConfirm ? (
+            <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 shadow-sm">
+              <AlertTriangle className="h-4 w-4 text-red-500" />
+              <span className="text-sm font-medium text-red-700">Excluir todos os leads?</span>
+              <button
+                onClick={deleteAllLeads}
+                disabled={isDeletingAll}
+                className="rounded bg-red-600 px-3 py-1 text-xs font-bold text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {isDeletingAll ? 'Excluindo...' : 'Confirmar'}
+              </button>
+              <button
+                onClick={() => setShowDeleteAllConfirm(false)}
+                className="rounded border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+              >
+                Cancelar
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowDeleteAllConfirm(true)}
+              className="flex items-center gap-2 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
+            >
+              <Trash2 className="h-4 w-4" />
+              Excluir Todos
+            </button>
+          )}
           <button 
             onClick={() => setShowFilters(!showFilters)}
             className={cn(
@@ -187,6 +239,7 @@ export function LeadsList({ funnelId }: { funnelId: string }) {
                 <th className="px-6 py-3 font-semibold text-slate-900 whitespace-nowrap">UTM Medium</th>
                 <th className="px-6 py-3 font-semibold text-slate-900">Variante</th>
                 <th className="px-6 py-3 font-semibold text-slate-900">Data</th>
+                <th className="px-6 py-3 font-semibold text-slate-900" />
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -238,6 +291,31 @@ export function LeadsList({ funnelId }: { funnelId: string }) {
                   </td>
                   <td className="px-6 py-4 text-slate-500 whitespace-nowrap">
                     {format(new Date(lead.createdAt), 'dd/MM/yyyy HH:mm')}
+                  </td>
+                  <td className="px-4 py-4 text-right">
+                    {leadToDelete === lead.id ? (
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => deleteLead(lead.id)}
+                          className="rounded bg-red-600 px-2 py-1 text-[10px] font-bold text-white hover:bg-red-700"
+                        >
+                          Sim
+                        </button>
+                        <button
+                          onClick={() => setLeadToDelete(null)}
+                          className="rounded border border-slate-200 bg-white px-2 py-1 text-[10px] font-medium text-slate-600 hover:bg-slate-50"
+                        >
+                          Não
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setLeadToDelete(lead.id)}
+                        className="rounded p-1.5 text-slate-300 transition-colors hover:bg-red-50 hover:text-red-500"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

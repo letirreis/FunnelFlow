@@ -1,17 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, writeBatch, updateDoc, doc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Funnel, Lead, Response, Diagnosis, Question } from '../types';
 import { Card } from './ui';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
-import { Users, MousePointer2, Target, TrendingUp, Filter } from 'lucide-react';
+import { Users, MousePointer2, Target, TrendingUp, Trash2, AlertTriangle } from 'lucide-react';
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
+const FIRESTORE_BATCH_LIMIT = 500;
 
 export function AnalyticsTab({ funnel, questions, diagnoses }: { funnel: Funnel; questions: Question[]; diagnoses: Diagnosis[] }) {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [responses, setResponses] = useState<Response[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isResetting, setIsResetting] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -29,6 +32,31 @@ export function AnalyticsTab({ funnel, questions, diagnoses }: { funnel: Funnel;
     };
     fetchData();
   }, [funnel.id]);
+
+  const resetData = async () => {
+    setIsResetting(true);
+    try {
+      const [leadsSnap, responsesSnap] = await Promise.all([
+        getDocs(query(collection(db, 'leads'), where('funnelId', '==', funnel.id))),
+        getDocs(query(collection(db, 'responses'), where('funnelId', '==', funnel.id))),
+      ]);
+
+      const allDocs = [...leadsSnap.docs, ...responsesSnap.docs];
+      for (let i = 0; i < allDocs.length; i += FIRESTORE_BATCH_LIMIT) {
+        const batch = writeBatch(db);
+        allDocs.slice(i, i + FIRESTORE_BATCH_LIMIT).forEach(d => batch.delete(d.ref));
+        await batch.commit();
+      }
+
+      await updateDoc(doc(db, 'funnels', funnel.id), { views: 0, leadsCount: 0 });
+
+      setLeads([]);
+      setResponses([]);
+      setShowResetConfirm(false);
+    } finally {
+      setIsResetting(false);
+    }
+  };
 
   if (loading) return <div className="flex h-64 items-center justify-center">Carregando dados...</div>;
 
@@ -61,6 +89,40 @@ export function AnalyticsTab({ funnel, questions, diagnoses }: { funnel: Funnel;
 
   return (
     <div className="space-y-8 pb-12">
+      {/* Header with Reset button */}
+      <div className="flex items-center justify-between">
+        <div />
+        <div className="relative">
+          {showResetConfirm ? (
+            <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2 shadow-sm">
+              <AlertTriangle className="h-4 w-4 text-red-500" />
+              <span className="text-sm font-medium text-red-700">Zerar todos os dados?</span>
+              <button
+                onClick={resetData}
+                disabled={isResetting}
+                className="rounded bg-red-600 px-3 py-1 text-xs font-bold text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {isResetting ? 'Zerando...' : 'Confirmar'}
+              </button>
+              <button
+                onClick={() => setShowResetConfirm(false)}
+                className="rounded border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+              >
+                Cancelar
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowResetConfirm(true)}
+              className="flex items-center gap-2 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
+            >
+              <Trash2 className="h-4 w-4" />
+              Zerar Dados
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* Key Metrics */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <MetricCard title="Visualizações" value={funnel.views} icon={MousePointer2} color="blue" />
