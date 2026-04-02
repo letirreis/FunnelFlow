@@ -2,10 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { doc, onSnapshot, collection, query, orderBy, addDoc, updateDoc, deleteDoc, getDocs, getDoc, deleteField } from 'firebase/firestore';
 import { signOut } from 'firebase/auth';
 import { auth, db } from '../firebase';
-import { Funnel, Question, AnswerOption, Diagnosis, LogicRule, ScoringConfig, KoRule, KoCondition } from '../types';
+import { Funnel, Question, AnswerOption, Diagnosis, LogicRule, ScoringConfig, KoRule, KoCondition, CoverPage, LeadCaptureConfig, LeadFormField, DEFAULT_LEAD_FIELDS } from '../types';
 import { Button, Card, Input } from '../components/ui';
 import { RichTextEditor } from '../components/RichTextEditor';
-import { ArrowLeft, Plus, Settings, BarChart2, Users, Save, Trash2, ChevronRight, ChevronDown, Image as ImageIcon, LogOut, Globe, TrendingUp, Layout, GripVertical, Copy, ChevronUp, Upload } from 'lucide-react';
+import { ArrowLeft, Plus, Settings, BarChart2, Users, Save, Trash2, ChevronRight, ChevronDown, Image as ImageIcon, LogOut, Globe, TrendingUp, Layout, GripVertical, Copy, ChevronUp, Upload, FileText, ToggleLeft, ToggleRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   DndContext, 
@@ -298,6 +298,8 @@ export function Builder({ funnelId, onBack }: { funnelId: string; onBack: () => 
         {activeTab === 'builder' && (
           <div className="h-full overflow-y-auto p-8">
             <div className="mx-auto max-w-3xl space-y-4 pb-20">
+              <CoverPageBlock funnel={funnel} funnelId={funnelId} onUpload={handleFileUpload} />
+              <LeadCaptureBlock funnel={funnel} funnelId={funnelId} />
               <DndContext 
                 sensors={sensors}
                 collisionDetection={closestCenter}
@@ -598,6 +600,371 @@ export function Builder({ funnelId, onBack }: { funnelId: string; onBack: () => 
         )}
       </main>
     </div>
+  );
+}
+
+// ─── Cover Page Editor Block ────────────────────────────────────────────────
+
+interface CoverPageBlockProps {
+  funnel: Funnel;
+  funnelId: string;
+  onUpload: (e: React.ChangeEvent<HTMLInputElement>, callback: (url: string) => void) => void;
+}
+
+function CoverPageBlock({ funnel, funnelId, onUpload }: CoverPageBlockProps) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const coverPage = funnel.coverPage;
+  const enabled = coverPage?.enabled !== false;
+
+  const updateCoverPage = (updates: Partial<CoverPage>) => {
+    updateDoc(doc(db, 'funnels', funnelId), {
+      coverPage: { enabled, ...coverPage, ...updates },
+    });
+  };
+
+  return (
+    <Card className="overflow-hidden">
+      <div
+        className="flex cursor-pointer select-none items-center justify-between p-4 hover:bg-slate-50"
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <div className="flex items-center gap-3">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-100">
+            <Layout className="h-4 w-4 text-purple-600" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Capa</span>
+              <span className={cn(
+                'rounded-full px-2 py-0.5 text-xs font-medium',
+                enabled ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'
+              )}>
+                {enabled ? 'Ativada' : 'Desativada'}
+              </span>
+            </div>
+            <p className="text-sm font-medium text-slate-700">Página Inicial do Quiz</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={(e) => { e.stopPropagation(); updateCoverPage({ enabled: !enabled }); }}
+            className={cn(
+              'relative inline-flex h-5 w-9 items-center rounded-full transition-colors',
+              enabled ? 'bg-blue-600' : 'bg-slate-200'
+            )}
+          >
+            <span className={cn(
+              'inline-block h-3 w-3 transform rounded-full bg-white transition-transform',
+              enabled ? 'translate-x-5' : 'translate-x-1'
+            )} />
+          </button>
+          {isExpanded ? <ChevronUp className="h-5 w-5 text-slate-400" /> : <ChevronDown className="h-5 w-5 text-slate-400" />}
+        </div>
+      </div>
+
+      {isExpanded && (
+        <div className="border-t border-slate-100 p-4 space-y-4">
+          <div className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500">
+            O título da página inicial é o <strong>nome do funil</strong> (<em>{funnel.name}</em>).
+            Para alterá-lo, atualize o campo "Nome do Funil" em <strong>Configurações</strong>.
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm font-medium">Descrição</label>
+            <textarea
+              value={coverPage?.description ?? ''}
+              onChange={(e) => updateCoverPage({ description: e.target.value })}
+              className="w-full rounded-lg border border-slate-200 p-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              rows={2}
+              placeholder="Descubra seu diagnóstico personalizado em poucos minutos."
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm font-medium">Texto do Botão</label>
+            <Input
+              value={coverPage?.buttonText ?? ''}
+              onChange={(e) => updateCoverPage({ buttonText: e.target.value })}
+              placeholder="Começar Diagnóstico"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm font-medium">Imagem (opcional)</label>
+            <div className="flex gap-2">
+              <Input
+                value={coverPage?.imageUrl ?? ''}
+                onChange={(e) => updateCoverPage({ imageUrl: e.target.value })}
+                placeholder="https://exemplo.com/imagem.jpg"
+                className="flex-1"
+              />
+              <div className="relative">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => onUpload(e, (url) => updateCoverPage({ imageUrl: url }))}
+                  className="absolute inset-0 opacity-0 cursor-pointer w-10"
+                />
+                <Button variant="secondary" className="px-3">
+                  <Upload className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+            {coverPage?.imageUrl && (
+              <div className="mt-2 flex items-center gap-2">
+                <img src={coverPage.imageUrl} alt="" className="h-16 w-28 rounded-lg object-cover border border-slate-200" referrerPolicy="no-referrer" />
+                <Button variant="ghost" className="text-red-500 hover:bg-red-50 text-xs px-2 py-1" onClick={() => updateCoverPage({ imageUrl: '' })}>
+                  <Trash2 className="h-3 w-3 mr-1" /> Remover
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ─── Lead Capture Form Editor Block ──────────────────────────────────────────
+
+const BUILT_IN_FIELD_IDS = new Set(DEFAULT_LEAD_FIELDS.map(f => f.id));
+
+interface LeadCaptureBlockProps {
+  funnel: Funnel;
+  funnelId: string;
+}
+
+function LeadCaptureBlock({ funnel, funnelId }: LeadCaptureBlockProps) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [newFieldLabel, setNewFieldLabel] = useState('');
+  const [newFieldType, setNewFieldType] = useState<LeadFormField['type']>('text');
+
+  const config = funnel.leadCapture;
+  const position = config?.position ?? 'before_questions';
+  const fields: LeadFormField[] = config?.fields?.length
+    ? config.fields
+    : DEFAULT_LEAD_FIELDS;
+
+  const saveConfig = (updates: Partial<LeadCaptureConfig>) => {
+    updateDoc(doc(db, 'funnels', funnelId), {
+      leadCapture: { position, fields, ...config, ...updates },
+    });
+  };
+
+  const updateField = (fieldId: string, updates: Partial<LeadFormField>) => {
+    saveConfig({ fields: fields.map(f => f.id === fieldId ? { ...f, ...updates } : f) });
+  };
+
+  const addCustomField = () => {
+    if (!newFieldLabel.trim()) return;
+    const ts = Date.now();
+    const baseKey = 'custom_' + newFieldLabel.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_');
+    // Append timestamp suffix to guarantee uniqueness even if two fields share the same label
+    const customKey = `${baseKey}_${ts}`;
+    const newField: LeadFormField = {
+      id: 'field_' + ts,
+      type: newFieldType,
+      key: customKey,
+      label: newFieldLabel.trim(),
+      required: false,
+      enabled: true,
+    };
+    saveConfig({ fields: [...fields, newField] });
+    setNewFieldLabel('');
+    setNewFieldType('text');
+  };
+
+  const removeCustomField = (fieldId: string) => {
+    saveConfig({ fields: fields.filter(f => f.id !== fieldId) });
+  };
+
+  const positionLabels: Record<string, string> = {
+    before_questions: 'Antes das perguntas',
+    after_questions: 'Após as perguntas',
+    disabled: 'Desativado (sem captura)',
+  };
+
+  return (
+    <Card className="overflow-hidden">
+      <div
+        className="flex cursor-pointer select-none items-center justify-between p-4 hover:bg-slate-50"
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <div className="flex items-center gap-3">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-orange-100">
+            <FileText className="h-4 w-4 text-orange-600" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Formulário</span>
+              <span className={cn(
+                'rounded-full px-2 py-0.5 text-xs font-medium',
+                position === 'disabled' ? 'bg-slate-100 text-slate-500' : 'bg-orange-100 text-orange-700'
+              )}>
+                {positionLabels[position]}
+              </span>
+            </div>
+            <p className="text-sm font-medium text-slate-700">Captura de Leads</p>
+          </div>
+        </div>
+        {isExpanded ? <ChevronUp className="h-5 w-5 text-slate-400" /> : <ChevronDown className="h-5 w-5 text-slate-400" />}
+      </div>
+
+      {isExpanded && (
+        <div className="border-t border-slate-100 p-4 space-y-5">
+          {/* Position selector */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Posição no quiz</label>
+            <div className="flex flex-wrap gap-2">
+              {(['before_questions', 'after_questions', 'disabled'] as const).map(pos => (
+                <button
+                  key={pos}
+                  onClick={() => saveConfig({ position: pos })}
+                  className={cn(
+                    'rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors',
+                    position === pos
+                      ? 'border-blue-500 bg-blue-50 text-blue-700'
+                      : 'border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                  )}
+                >
+                  {positionLabels[pos]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {position !== 'disabled' && (
+            <>
+              {/* Built-in fields */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Campos do formulário</label>
+                <div className="space-y-2">
+                  {fields.filter(f => BUILT_IN_FIELD_IDS.has(f.id)).map(field => (
+                    <div key={field.id} className="flex items-center gap-3 rounded-lg border border-slate-200 px-3 py-2 bg-white">
+                      <button
+                        onClick={() => updateField(field.id, { enabled: !field.enabled })}
+                        className={cn(
+                          'relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors',
+                          field.enabled ? 'bg-blue-600' : 'bg-slate-200'
+                        )}
+                      >
+                        <span className={cn(
+                          'inline-block h-3 w-3 transform rounded-full bg-white transition-transform',
+                          field.enabled ? 'translate-x-5' : 'translate-x-1'
+                        )} />
+                      </button>
+                      <input
+                        className="flex-1 rounded border border-slate-200 px-2 py-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50 disabled:bg-slate-50"
+                        value={field.label}
+                        disabled={!field.enabled}
+                        onChange={(e) => updateField(field.id, { label: e.target.value })}
+                      />
+                      <button
+                        onClick={() => updateField(field.id, { required: !field.required })}
+                        disabled={!field.enabled}
+                        className={cn(
+                          'rounded px-2 py-1 text-xs font-medium transition-colors',
+                          field.required ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500',
+                          !field.enabled && 'opacity-40 cursor-not-allowed'
+                        )}
+                      >
+                        {field.required ? 'Obrigatório' : 'Opcional'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-slate-400">O campo de consentimento (LGPD) é sempre exibido e obrigatório.</p>
+              </div>
+
+              {/* Custom fields */}
+              {fields.filter(f => !BUILT_IN_FIELD_IDS.has(f.id)).length > 0 && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Campos personalizados</label>
+                  <div className="space-y-2">
+                    {fields.filter(f => !BUILT_IN_FIELD_IDS.has(f.id)).map(field => (
+                      <div key={field.id} className="flex items-center gap-3 rounded-lg border border-slate-200 px-3 py-2 bg-white">
+                        <button
+                          onClick={() => updateField(field.id, { enabled: !field.enabled })}
+                          className={cn(
+                            'relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors',
+                            field.enabled ? 'bg-blue-600' : 'bg-slate-200'
+                          )}
+                        >
+                          <span className={cn(
+                            'inline-block h-3 w-3 transform rounded-full bg-white transition-transform',
+                            field.enabled ? 'translate-x-5' : 'translate-x-1'
+                          )} />
+                        </button>
+                        <input
+                          className="flex-1 rounded border border-slate-200 px-2 py-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                          value={field.label}
+                          onChange={(e) => updateField(field.id, { label: e.target.value })}
+                        />
+                        <select
+                          value={field.type}
+                          onChange={(e) => updateField(field.id, { type: e.target.value as LeadFormField['type'] })}
+                          className="rounded border border-slate-200 px-2 py-1 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                        >
+                          <option value="text">Texto</option>
+                          <option value="email">E-mail</option>
+                          <option value="tel">Telefone</option>
+                          <option value="number">Número</option>
+                          <option value="textarea">Área de texto</option>
+                        </select>
+                        <button
+                          onClick={() => updateField(field.id, { required: !field.required })}
+                          className={cn(
+                            'rounded px-2 py-1 text-xs font-medium transition-colors',
+                            field.required ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500'
+                          )}
+                        >
+                          {field.required ? 'Obrigatório' : 'Opcional'}
+                        </button>
+                        <Button
+                          variant="ghost"
+                          className="text-red-500 hover:bg-red-50 px-2 py-1"
+                          onClick={() => removeCustomField(field.id)}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Add custom field */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Adicionar campo personalizado</label>
+                <div className="flex gap-2">
+                  <Input
+                    value={newFieldLabel}
+                    onChange={(e) => setNewFieldLabel(e.target.value)}
+                    placeholder="Ex: CPF, Data de nascimento..."
+                    className="flex-1"
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCustomField(); } }}
+                  />
+                  <select
+                    value={newFieldType}
+                    onChange={(e) => setNewFieldType(e.target.value as LeadFormField['type'])}
+                    className="rounded-lg border border-slate-200 px-2 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                  >
+                    <option value="text">Texto</option>
+                    <option value="email">E-mail</option>
+                    <option value="tel">Telefone</option>
+                    <option value="number">Número</option>
+                    <option value="textarea">Área de texto</option>
+                  </select>
+                  <Button variant="secondary" onClick={addCustomField} disabled={!newFieldLabel.trim()}>
+                    <Plus className="h-4 w-4 mr-1" /> Adicionar
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </Card>
   );
 }
 

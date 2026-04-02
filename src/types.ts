@@ -54,6 +54,52 @@ export interface Branding {
   fontFamily?: string;
 }
 
+export interface CoverPage {
+  /** Whether to show the cover/intro page. Defaults to true when absent. */
+  enabled: boolean;
+  /** Description text shown below the title. Falls back to a default phrase when absent. */
+  description?: string;
+  /** CTA button label. Defaults to "Começar Diagnóstico" when absent. */
+  buttonText?: string;
+  /** Optional hero image URL. */
+  imageUrl?: string;
+}
+
+export interface LeadFormField {
+  id: string;
+  type: 'text' | 'email' | 'tel' | 'textarea' | 'select' | 'number';
+  /** Maps to a Lead document field (name, email, phone, company, revenue, role, or custom_*). */
+  key: string;
+  label: string;
+  placeholder?: string;
+  required: boolean;
+  enabled: boolean;
+  /** Options list for select-type fields. */
+  options?: string[];
+}
+
+/** Built-in fields available for the lead capture form. */
+export const DEFAULT_LEAD_FIELDS: LeadFormField[] = [
+  { id: 'field_name',    type: 'text',  key: 'name',    label: 'Nome Completo',       required: true,  enabled: true  },
+  { id: 'field_email',   type: 'email', key: 'email',   label: 'E-mail',              required: true,  enabled: true  },
+  { id: 'field_phone',   type: 'tel',   key: 'phone',   label: 'Telefone / WhatsApp', required: false, enabled: true  },
+  { id: 'field_company', type: 'text',  key: 'company', label: 'Empresa',             required: false, enabled: false },
+  { id: 'field_revenue', type: 'text',  key: 'revenue', label: 'Faturamento',         required: false, enabled: false },
+  { id: 'field_role',    type: 'text',  key: 'role',    label: 'Cargo',               required: false, enabled: false },
+];
+
+export interface LeadCaptureConfig {
+  /**
+   * Where in the quiz flow the lead form appears.
+   * 'before_questions' (default): after cover page, before questions.
+   * 'after_questions': after all questions, before the result.
+   * 'disabled': no lead capture form is shown.
+   */
+  position: 'before_questions' | 'after_questions' | 'disabled';
+  /** Configured form fields. Defaults to DEFAULT_LEAD_FIELDS when absent or empty. */
+  fields: LeadFormField[];
+}
+
 export interface WebhookConfig {
   id: string;
   url: string;
@@ -71,6 +117,10 @@ export interface Funnel {
   branding: Branding;
   views: number;
   leadsCount: number;
+  /** Optional cover / intro page configuration. Defaults to enabled when absent. */
+  coverPage?: CoverPage;
+  /** Optional lead capture form configuration. Defaults to before_questions when absent. */
+  leadCapture?: LeadCaptureConfig;
   abTesting?: {
     enabled: boolean;
     variantBTitle?: string;
@@ -179,6 +229,8 @@ export interface Lead {
   revenue?: string;
   role?: string;
   consent: boolean;
+  /** Values for any custom fields added by the funnel owner. */
+  customFields?: Record<string, string>;
   status: 'incomplete' | 'completed';
   variant?: 'A' | 'B';
   utm_source?: string;

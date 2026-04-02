@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { collection, query, where, getDocs, orderBy, addDoc, serverTimestamp, updateDoc, doc } from 'firebase/firestore';
 import { db, auth } from '../firebase';
-import { Funnel, Question, AnswerOption, Diagnosis, Lead, TrackingData, LogicRule } from '../types';
+import { Funnel, Question, AnswerOption, Diagnosis, Lead, TrackingData, LogicRule, DEFAULT_LEAD_FIELDS, LeadFormField } from '../types';
 import { Button, Card, Input } from '../components/ui';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronRight, ChevronLeft, CheckCircle2, Layout, ArrowRight, XCircle } from 'lucide-react';
@@ -173,7 +173,7 @@ export function Renderer({ slug }: { slug: string }) {
   const [dataLoading, setDataLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [leadForm, setLeadForm] = useState({ name: '', email: '', phone: '', consent: false });
+  const [leadFormValues, setLeadFormValues] = useState<Record<string, string | boolean>>({});
   const [isStarting, setIsStarting] = useState(false);
   const [leadId, setLeadId] = useState<string | null>(null);
   const [finalDiagnosis, setFinalDiagnosis] = useState<Diagnosis | null>(null);
@@ -250,6 +250,12 @@ export function Renderer({ slug }: { slug: string }) {
         if (fData.abTesting?.enabled) {
           const assignedVariant = Math.random() > 0.5 ? 'B' : 'A';
           setVariant(assignedVariant);
+        }
+
+        // If the cover/intro page is disabled, jump straight to lead or questions
+        if (fData.coverPage?.enabled === false) {
+          const pos = fData.leadCapture?.position ?? 'before_questions';
+          setStep(pos === 'before_questions' ? 'lead' : 'questions');
         }
 
         // Show start screen immediately
@@ -373,7 +379,12 @@ export function Renderer({ slug }: { slug: string }) {
         }
         if (action.type === 'force_diagnosis' && action.targetId) {
           setForcedDiagnosisId(action.targetId);
-          setStep('lead');
+          const leadPosition = funnel?.leadCapture?.position ?? 'before_questions';
+          if (leadPosition === 'before_questions') {
+            setStep('lead');
+          } else {
+            finishFunnel();
+          }
           return;
         }
         if (action.type === 'jump' && action.targetId) {
@@ -399,7 +410,12 @@ export function Renderer({ slug }: { slug: string }) {
       
       if (type === 'force_diagnosis' && targetId) {
         setForcedDiagnosisId(targetId);
-        setStep('lead');
+        const leadPosition = funnel?.leadCapture?.position ?? 'before_questions';
+        if (leadPosition === 'before_questions') {
+          setStep('lead');
+        } else {
+          finishFunnel();
+        }
         return;
       }
       
@@ -416,41 +432,69 @@ export function Renderer({ slug }: { slug: string }) {
     if (currentQuestionIdx < questions.length - 1) {
       setCurrentQuestionIdx(prev => prev + 1);
     } else {
-      finishFunnel();
+      // If lead capture is after questions, show lead form now; otherwise finish
+      const leadPosition = funnel?.leadCapture?.position ?? 'before_questions';
+      if (leadPosition === 'after_questions') {
+        setStep('lead');
+      } else {
+        finishFunnel();
+      }
     }
   };
 
   const startLead = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
-    
-    // Validate form
-    if (!leadForm.name.trim()) {
-      setFormError('Nome é obrigatório');
-      return;
-    }
-    if (!leadForm.email.trim()) {
-      setFormError('E-mail é obrigatório');
-      return;
-    }
-    if (!leadForm.consent) {
-      setFormError('Você deve aceitar a política de privacidade');
-      return;
-    }
+
     if (isStarting || !funnel) {
       setFormError('Carregando, tente novamente...');
       return;
     }
-    
+
+    // Determine which fields are active
+    const configuredFields = funnel.leadCapture?.fields?.length
+      ? funnel.leadCapture.fields
+      : DEFAULT_LEAD_FIELDS;
+    const enabledFields = configuredFields.filter(f => f.enabled);
+
+    // Validate required fields
+    for (const field of enabledFields) {
+      if (field.required) {
+        const val = leadFormValues[field.key];
+        if (!val || (typeof val === 'string' && !val.trim())) {
+          setFormError(`${field.label} é obrigatório`);
+          return;
+        }
+      }
+    }
+    if (!leadFormValues['consent']) {
+      setFormError('Você deve aceitar a política de privacidade');
+      return;
+    }
+
     setIsStarting(true);
 
     try {
+      // Separate known Lead fields from custom fields
+      const knownKeys = new Set(['name', 'email', 'phone', 'company', 'revenue', 'role']);
+      const knownFieldsData: Record<string, string> = {};
+      const customFieldsData: Record<string, string> = {};
+
+      for (const field of enabledFields) {
+        const value = (leadFormValues[field.key] as string) || '';
+        if (knownKeys.has(field.key)) {
+          knownFieldsData[field.key] = value;
+        } else {
+          customFieldsData[field.key] = value;
+        }
+      }
+
       // Save Initial Lead (Incomplete)
       const leadRef = await addDoc(collection(db, 'leads'), {
         funnelId: funnel.id,
-        name: leadForm.name,
-        email: leadForm.email,
-        phone: leadForm.phone,
+        ...knownFieldsData,
+        consent: leadFormValues['consent'] as boolean,
+        ...(Object.keys(customFieldsData).length > 0 ? { customFields: customFieldsData } : {}),
         variant,
         ...tracking,
         status: 'incomplete',
@@ -462,7 +506,7 @@ export function Renderer({ slug }: { slug: string }) {
 
       if (leadRef) {
         setLeadId(leadRef.id);
-        
+
         // Increment Lead Count
         await updateDoc(doc(db, 'funnels', funnel.id), {
           leadsCount: (funnel.leadsCount || 0) + 1
@@ -489,13 +533,23 @@ export function Renderer({ slug }: { slug: string }) {
               funnel.metaPixelId,
               funnel.metaConversionsApiToken,
               'Lead',
-              { email: leadForm.email, phone: leadForm.phone, name: leadForm.name },
+              {
+                email: knownFieldsData['email'] || '',
+                phone: knownFieldsData['phone'] || '',
+                name: knownFieldsData['name'] || '',
+              },
               leadEventId
             );
           }
         }
-        
-        setStep('questions');
+
+        const leadPosition = funnel.leadCapture?.position ?? 'before_questions';
+        if (leadPosition === 'after_questions') {
+          // Answers already collected — finish the funnel now
+          await finishFunnel(false, leadRef.id);
+        } else {
+          setStep('questions');
+        }
       } else {
         setFormError('Erro ao iniciar diagnóstico. Tente novamente.');
       }
@@ -510,8 +564,11 @@ export function Renderer({ slug }: { slug: string }) {
   // isDirectDisqualify=true is passed when a question rule immediately disqualifies the user
   // (bypassing KO scoring). In that case the caller already set the UI state, so we only
   // need to persist data and fire pixel events without touching React state again.
-  const finishFunnel = async (isDirectDisqualify: boolean = false) => {
+  // leadIdOverride: pass when leadId state hasn't been committed yet (e.g. from startLead for after_questions).
+  const finishFunnel = async (isDirectDisqualify: boolean = false, leadIdOverride?: string) => {
     try {
+      const effectiveLeadId = leadIdOverride ?? leadId;
+
       // Calculate Score (simple sum or weighted average based on funnel config)
       const score = calculateScore(funnel!.scoring, answers, questions, options);
       if (!isDirectDisqualify) setTotalScore(score);
@@ -544,21 +601,21 @@ export function Renderer({ slug }: { slug: string }) {
       if (!isDirectDisqualify) setFinalDiagnosis(diag || null);
 
       // Update Lead to Completed
-      if (leadId) {
-        await updateDoc(doc(db, 'leads', leadId), {
+      if (effectiveLeadId) {
+        await updateDoc(doc(db, 'leads', effectiveLeadId), {
           status: 'completed',
           finalScore: score,
           diagnosisId: diag?.id || 'none',
           isDisqualified,
           disqualifiedReason,
           updatedAt: new Date().toISOString()
-        }).catch(err => handleFirestoreError(err, 'update', `leads/${leadId}`));
+        }).catch(err => handleFirestoreError(err, 'update', `leads/${effectiveLeadId}`));
       }
 
       // Save Response
       await addDoc(collection(db, 'responses'), {
         funnelId: funnel!.id,
-        leadId: leadId || 'anonymous',
+        leadId: effectiveLeadId || 'anonymous',
         answersJson: JSON.stringify(answers),
         score,
         diagnosisId: diag?.id || 'none',
@@ -571,7 +628,7 @@ export function Renderer({ slug }: { slug: string }) {
       // Trigger Webhooks
       if (funnel?.integrations?.webhooks && funnel.integrations.webhooks.length > 0) {
         const activeWebhooks = funnel.integrations.webhooks.filter(w => w.enabled);
-        
+
         if (activeWebhooks.length > 0) {
           // Prepare formatted responses for the webhook
           const formattedResponses: Record<string, string> = {};
@@ -596,8 +653,11 @@ export function Renderer({ slug }: { slug: string }) {
               name: funnel.name,
             },
             lead: {
-              id: leadId,
-              ...leadForm,
+              id: effectiveLeadId,
+              ...Object.fromEntries(
+                Object.entries(leadFormValues).filter(([k]) => k !== 'consent')
+              ),
+              consent: leadFormValues['consent'],
             },
             results: {
               score,
@@ -632,7 +692,10 @@ export function Renderer({ slug }: { slug: string }) {
             funnel.metaPixelId,
             funnel.metaConversionsApiToken,
             'CompleteRegistration',
-            { email: leadForm.email, phone: leadForm.phone },
+            {
+              email: (leadFormValues['email'] as string) || '',
+              phone: (leadFormValues['phone'] as string) || '',
+            },
             completeEventId
           );
         }
@@ -655,6 +718,12 @@ export function Renderer({ slug }: { slug: string }) {
   if (loading) return <div className="flex h-screen items-center justify-center"><div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" /></div>;
   if (error) return <div className="flex h-screen items-center justify-center text-red-500">{error}</div>;
   if (!funnel) return null;
+
+  const leadPosition = funnel.leadCapture?.position ?? 'before_questions';
+  const configuredFields = funnel.leadCapture?.fields?.length
+    ? funnel.leadCapture.fields
+    : DEFAULT_LEAD_FIELDS;
+  const enabledLeadFields = configuredFields.filter(f => f.enabled);
 
   const currentQuestion = questions[currentQuestionIdx];
   const progress = questions.length > 0 ? ((currentQuestionIdx + 1) / questions.length) * 100 : 0;
@@ -702,25 +771,39 @@ export function Renderer({ slug }: { slug: string }) {
               exit={{ opacity: 0, y: -20 }}
               className="text-center relative z-10"
             >
-              <div className="mb-8 flex justify-center">
-                {!funnel.branding?.logoUrl && (
-                  <div className="h-16 w-16 rounded-2xl flex items-center justify-center shadow-xl" style={{ backgroundColor: 'var(--primary)' }}>
-                    <Layout className="h-8 w-8 text-white" />
-                  </div>
-                )}
-              </div>
+              {funnel.coverPage?.imageUrl && (
+                <div className="mb-8 overflow-hidden rounded-2xl shadow-lg">
+                  <img
+                    src={funnel.coverPage.imageUrl}
+                    alt=""
+                    className="w-full object-cover max-h-64"
+                    referrerPolicy="no-referrer"
+                  />
+                </div>
+              )}
+              {!funnel.coverPage?.imageUrl && (
+                <div className="mb-8 flex justify-center">
+                  {!funnel.branding?.logoUrl && (
+                    <div className="h-16 w-16 rounded-2xl flex items-center justify-center shadow-xl" style={{ backgroundColor: 'var(--primary)' }}>
+                      <Layout className="h-8 w-8 text-white" />
+                    </div>
+                  )}
+                </div>
+              )}
               <h1 className="mb-4 text-4xl font-extrabold tracking-tight sm:text-5xl">
                 {variant === 'B' && funnel.abTesting?.variantBTitle ? funnel.abTesting.variantBTitle : funnel.name}
               </h1>
               <p className="mb-10 text-xl opacity-80">
-                {variant === 'B' && funnel.abTesting?.variantBDescription ? funnel.abTesting.variantBDescription : 'Descubra seu diagnóstico personalizado em poucos minutos.'}
+                {variant === 'B' && funnel.abTesting?.variantBDescription
+                  ? funnel.abTesting.variantBDescription
+                  : funnel.coverPage?.description || 'Descubra seu diagnóstico personalizado em poucos minutos.'}
               </p>
-              <Button 
-                onClick={() => setStep('lead')} 
+              <Button
+                onClick={() => leadPosition === 'before_questions' ? setStep('lead') : setStep('questions')}
                 className="h-14 px-10 text-lg rounded-full shadow-lg"
                 style={{ backgroundColor: 'var(--primary)' }}
               >
-                Começar Diagnóstico
+                {funnel.coverPage?.buttonText || 'Começar Diagnóstico'}
                 <ArrowRight className="ml-2 h-5 w-5" />
               </Button>
             </motion.div>
@@ -854,7 +937,7 @@ export function Renderer({ slug }: { slug: string }) {
           )}
 
           {step === 'lead' && (
-            <motion.div 
+            <motion.div
               key="lead"
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -862,7 +945,11 @@ export function Renderer({ slug }: { slug: string }) {
             >
               <div className="text-center">
                 <h2 className="mb-2 text-3xl font-bold">Identificação</h2>
-                <p className="text-slate-500">Preencha seus dados para iniciar seu diagnóstico personalizado.</p>
+                <p className="text-slate-500">
+                  {leadPosition === 'after_questions'
+                    ? 'Preencha seus dados para ver seu diagnóstico personalizado.'
+                    : 'Preencha seus dados para iniciar seu diagnóstico personalizado.'}
+                </p>
               </div>
 
               {formError && (
@@ -870,56 +957,60 @@ export function Renderer({ slug }: { slug: string }) {
                   {formError}
                 </div>
               )}
-              
+
               <form onSubmit={startLead} className="space-y-4">
-                <div className="space-y-1">
-                  <label className="text-sm font-medium">Nome Completo</label>
-                  <Input 
-                    required 
-                    value={leadForm.name} 
-                    onChange={e => setLeadForm(prev => ({ ...prev, name: e.target.value }))}
-                    className="h-12 rounded-xl"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-medium">E-mail</label>
-                  <Input 
-                    type="email" 
-                    required 
-                    value={leadForm.email} 
-                    onChange={e => setLeadForm(prev => ({ ...prev, email: e.target.value }))}
-                    className="h-12 rounded-xl"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-medium">Telefone / WhatsApp</label>
-                  <Input 
-                    type="tel" 
-                    value={leadForm.phone} 
-                    onChange={e => setLeadForm(prev => ({ ...prev, phone: e.target.value }))}
-                    className="h-12 rounded-xl"
-                  />
-                </div>
+                {enabledLeadFields.map(field => (
+                  <div key={field.id} className="space-y-1">
+                    <label className="text-sm font-medium">
+                      {field.label}
+                      {field.required && <span className="ml-1 text-red-500">*</span>}
+                    </label>
+                    {field.type === 'textarea' ? (
+                      <textarea
+                        required={field.required}
+                        value={(leadFormValues[field.key] as string) || ''}
+                        onChange={e => setLeadFormValues(prev => ({ ...prev, [field.key]: e.target.value }))}
+                        placeholder={field.placeholder || ''}
+                        className="flex w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                        rows={3}
+                      />
+                    ) : (
+                      <Input
+                        type={field.type}
+                        required={field.required}
+                        value={(leadFormValues[field.key] as string) || ''}
+                        onChange={e => setLeadFormValues(prev => ({ ...prev, [field.key]: e.target.value }))}
+                        placeholder={field.placeholder || ''}
+                        className="h-12 rounded-xl"
+                      />
+                    )}
+                  </div>
+                ))}
+
+                {/* Consent checkbox — always shown, required by LGPD */}
                 <label className="flex items-start gap-3 cursor-pointer py-2">
-                  <input 
-                    type="checkbox" 
-                    required 
-                    checked={leadForm.consent} 
-                    onChange={e => setLeadForm(prev => ({ ...prev, consent: e.target.checked }))}
+                  <input
+                    type="checkbox"
+                    required
+                    checked={(leadFormValues['consent'] as boolean) || false}
+                    onChange={e => setLeadFormValues(prev => ({ ...prev, consent: e.target.checked }))}
                     className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                   />
                   <span className="text-sm text-slate-500 leading-relaxed">
                     Concordo em receber comunicações e aceito a Política de Privacidade conforme a LGPD.
                   </span>
                 </label>
-                <Button 
-                  type="submit" 
+
+                <Button
+                  type="submit"
                   disabled={isStarting}
-                  className="w-full h-14 text-lg rounded-xl shadow-lg flex items-center justify-center relative z-20 hover:scale-[1.02] active:scale-[0.98] transition-transform cursor-pointer" 
+                  className="w-full h-14 text-lg rounded-xl shadow-lg flex items-center justify-center relative z-20 hover:scale-[1.02] active:scale-[0.98] transition-transform cursor-pointer"
                   style={{ backgroundColor: 'var(--primary)', cursor: isStarting ? 'not-allowed' : 'pointer' }}
                 >
                   {isStarting ? (
                     <div className="h-6 w-6 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  ) : leadPosition === 'after_questions' ? (
+                    'Ver Diagnóstico'
                   ) : (
                     'Iniciar Diagnóstico'
                   )}
