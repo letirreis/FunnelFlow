@@ -41,8 +41,12 @@ function isSubstantiveChange(prev: Funnel, next: Funnel): boolean {
     IGNORE_DIRTY_FIELDS.forEach(k => delete copy[k]);
     return copy;
   };
-  const sortedStringify = (obj: Record<string, unknown>) =>
-    JSON.stringify(obj, Object.keys(obj).sort());
+  const sortedStringify = (obj: unknown): string =>
+    JSON.stringify(obj, (_, value) =>
+      value !== null && typeof value === 'object' && !Array.isArray(value)
+        ? Object.fromEntries(Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)))
+        : value
+    );
   return sortedStringify(strip(prev)) !== sortedStringify(strip(next));
 }
 
