@@ -38,9 +38,7 @@ export function RichTextEditor({ value, onChange, placeholder, className }: Rich
     ],
     content: value || '',
     onUpdate: ({ editor }) => {
-      const html = editor.getHTML();
-      pendingChange.current = html;
-      onChange(html);
+      onChange(editor.getHTML());
     },
   });
 
