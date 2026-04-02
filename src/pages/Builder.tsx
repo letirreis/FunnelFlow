@@ -671,11 +671,9 @@ function CoverPageBlock({ funnel, funnelId, onUpload }: CoverPageBlockProps) {
 
           <div className="space-y-1">
             <label className="text-sm font-medium">Descrição</label>
-            <textarea
+            <RichTextEditor
               value={coverPage?.description ?? ''}
-              onChange={(e) => updateCoverPage({ description: e.target.value })}
-              className="w-full rounded-lg border border-slate-200 p-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-              rows={2}
+              onChange={(html) => updateCoverPage({ description: html })}
               placeholder="Descubra seu diagnóstico personalizado em poucos minutos."
             />
           </div>
@@ -716,6 +714,38 @@ function CoverPageBlock({ funnel, funnelId, onUpload }: CoverPageBlockProps) {
                 <Button variant="ghost" className="text-red-500 hover:bg-red-50 text-xs px-2 py-1" onClick={() => updateCoverPage({ imageUrl: '' })}>
                   <Trash2 className="h-3 w-3 mr-1" /> Remover
                 </Button>
+              </div>
+            )}
+            {coverPage?.imageUrl && (
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-slate-600">Altura máxima (px)</label>
+                  <select
+                    value={coverPage?.imageMaxHeight ?? 256}
+                    onChange={(e) => updateCoverPage({ imageMaxHeight: Number(e.target.value) })}
+                    className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                  >
+                    <option value={150}>150 px</option>
+                    <option value={200}>200 px</option>
+                    <option value={256}>256 px (padrão)</option>
+                    <option value={320}>320 px</option>
+                    <option value={400}>400 px</option>
+                    <option value={500}>500 px</option>
+                    <option value={9999}>Altura original</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-slate-600">Ajuste da imagem</label>
+                  <select
+                    value={coverPage?.imageObjectFit ?? 'cover'}
+                    onChange={(e) => updateCoverPage({ imageObjectFit: e.target.value as 'cover' | 'contain' | 'fill' })}
+                    className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                  >
+                    <option value="cover">Preencher (recortar)</option>
+                    <option value="contain">Mostrar tudo (sem recorte)</option>
+                    <option value="fill">Esticar</option>
+                  </select>
+                </div>
               </div>
             )}
           </div>

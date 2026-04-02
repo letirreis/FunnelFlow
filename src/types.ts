@@ -57,12 +57,16 @@ export interface Branding {
 export interface CoverPage {
   /** Whether to show the cover/intro page. Defaults to true when absent. */
   enabled: boolean;
-  /** Description text shown below the title. Falls back to a default phrase when absent. */
+  /** Description text (HTML) shown below the title. Falls back to a default phrase when absent. */
   description?: string;
   /** CTA button label. Defaults to "Começar Diagnóstico" when absent. */
   buttonText?: string;
   /** Optional hero image URL. */
   imageUrl?: string;
+  /** Max height of the hero image in pixels (e.g. 256). Defaults to 256. */
+  imageMaxHeight?: number;
+  /** CSS object-fit for the hero image. Defaults to 'cover'. */
+  imageObjectFit?: 'cover' | 'contain' | 'fill';
 }
 
 export interface LeadFormField {

@@ -769,14 +769,18 @@ export function Renderer({ slug }: { slug: string }) {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="text-center relative z-10"
+              className="relative z-10"
             >
               {funnel.coverPage?.imageUrl && (
                 <div className="mb-8 overflow-hidden rounded-2xl shadow-lg">
                   <img
                     src={funnel.coverPage.imageUrl}
                     alt=""
-                    className="w-full object-cover max-h-64"
+                    style={{
+                      maxHeight: funnel.coverPage.imageMaxHeight === 9999 ? undefined : `${funnel.coverPage.imageMaxHeight ?? 256}px`,
+                      objectFit: funnel.coverPage.imageObjectFit ?? 'cover',
+                    }}
+                    className="w-full"
                     referrerPolicy="no-referrer"
                   />
                 </div>
@@ -790,22 +794,33 @@ export function Renderer({ slug }: { slug: string }) {
                   )}
                 </div>
               )}
-              <h1 className="mb-4 text-4xl font-extrabold tracking-tight sm:text-5xl">
+              <h1 className="mb-4 text-center text-4xl font-extrabold tracking-tight sm:text-5xl">
                 {variant === 'B' && funnel.abTesting?.variantBTitle ? funnel.abTesting.variantBTitle : funnel.name}
               </h1>
-              <p className="mb-10 text-xl opacity-80">
-                {variant === 'B' && funnel.abTesting?.variantBDescription
+              {(() => {
+                const desc = variant === 'B' && funnel.abTesting?.variantBDescription
                   ? funnel.abTesting.variantBDescription
-                  : funnel.coverPage?.description || 'Descubra seu diagnóstico personalizado em poucos minutos.'}
-              </p>
-              <Button
-                onClick={() => leadPosition === 'before_questions' ? setStep('lead') : setStep('questions')}
-                className="h-14 px-10 text-lg rounded-full shadow-lg"
-                style={{ backgroundColor: 'var(--primary)' }}
-              >
-                {funnel.coverPage?.buttonText || 'Começar Diagnóstico'}
-                <ArrowRight className="ml-2 h-5 w-5" />
-              </Button>
+                  : funnel.coverPage?.description || '';
+                const isHtml = /<[a-z][\s\S]*>/i.test(desc);
+                return isHtml
+                  ? <div
+                      className="mb-10 text-xl opacity-80 prose prose-xl max-w-none [&_p]:mb-3 [&_p:last-child]:mb-0"
+                      dangerouslySetInnerHTML={{ __html: desc }}
+                    />
+                  : <p className="mb-10 text-xl opacity-80 text-center">
+                      {desc || 'Descubra seu diagnóstico personalizado em poucos minutos.'}
+                    </p>;
+              })()}
+              <div className="flex justify-center">
+                <Button
+                  onClick={() => leadPosition === 'before_questions' ? setStep('lead') : setStep('questions')}
+                  className="h-14 px-10 text-lg rounded-full shadow-lg"
+                  style={{ backgroundColor: 'var(--primary)' }}
+                >
+                  {funnel.coverPage?.buttonText || 'Começar Diagnóstico'}
+                  <ArrowRight className="ml-2 h-5 w-5" />
+                </Button>
+              </div>
             </motion.div>
           )}
 
