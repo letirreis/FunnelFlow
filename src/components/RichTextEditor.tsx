@@ -169,6 +169,15 @@ export function RichTextEditor({ value, onChange, placeholder, className }: Rich
           <AlignRightIcon />
         </ToolbarBtn>
 
+        {/* Align Justify */}
+        <ToolbarBtn
+          onClick={() => editor.chain().focus().setTextAlign('justify').run()}
+          active={editor.isActive({ textAlign: 'justify' })}
+          title="Justificado"
+        >
+          <AlignJustifyIcon />
+        </ToolbarBtn>
+
         <div className="mx-1 h-5 w-px bg-slate-200" />
 
         {/* Emoji picker */}
@@ -263,6 +272,12 @@ const AlignCenterIcon = () => (
 const AlignRightIcon = () => (
   <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="currentColor">
     <path d="M2 3h12v1.5H2zm4 3.5h8v1.5H6zm-4 3.5h12v1.5H2zm4 3.5h8v1.5H6z"/>
+  </svg>
+);
+
+const AlignJustifyIcon = () => (
+  <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="currentColor">
+    <path d="M2 3h12v1.5H2zm0 3.5h12v1.5H2zm0 3.5h12v1.5H2zm0 3.5h12v1.5H2z"/>
   </svg>
 );
 
