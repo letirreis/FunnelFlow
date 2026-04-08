@@ -735,6 +735,9 @@ export function Renderer({ slug }: { slug: string }) {
         : []
     : [];
 
+  const btnShape = funnel.branding?.buttonShape ?? 'pill';
+  const btnRadius = btnShape === 'square' ? 'rounded-none' : btnShape === 'rounded' ? 'rounded-xl' : 'rounded-full';
+
   const brandingStyles = {
     backgroundColor: funnel.branding?.backgroundColor || '#ffffff',
     color: funnel.branding?.textColor || '#0f172a',
@@ -814,7 +817,7 @@ export function Renderer({ slug }: { slug: string }) {
               <div className="flex justify-center">
                 <Button
                   onClick={() => leadPosition === 'before_questions' ? setStep('lead') : setStep('questions')}
-                  className="h-14 px-10 text-lg rounded-full shadow-lg"
+                  className={`h-14 px-10 text-lg ${btnRadius} shadow-lg`}
                   style={{ backgroundColor: 'var(--primary)' }}
                 >
                   {funnel.coverPage?.buttonText || 'Começar Diagnóstico'}
@@ -877,7 +880,7 @@ export function Renderer({ slug }: { slug: string }) {
                     </div>
                     <Button 
                       onClick={handleContinue}
-                      className="h-14 px-10 text-lg rounded-full shadow-lg"
+                      className={`h-14 px-10 text-lg ${btnRadius} shadow-lg`}
                       style={{ backgroundColor: 'var(--primary)' }}
                     >
                       {currentQuestion.buttonText || 'Continuar'}
@@ -940,7 +943,7 @@ export function Renderer({ slug }: { slug: string }) {
                     onClick={handleContinue}
                     disabled={!answers[currentQuestion.id]}
                     style={{ backgroundColor: 'var(--primary)' }}
-                    className="h-12 px-10 text-lg rounded-xl shadow-lg font-bold"
+                    className={`h-12 px-10 text-lg ${btnRadius} shadow-lg font-bold`}
                   >
                     Próximo
                     <ArrowRight className="ml-2 h-5 w-5" />
@@ -1019,7 +1022,7 @@ export function Renderer({ slug }: { slug: string }) {
                 <Button
                   type="submit"
                   disabled={isStarting}
-                  className="w-full h-14 text-lg rounded-xl shadow-lg flex items-center justify-center relative z-20 hover:scale-[1.02] active:scale-[0.98] transition-transform cursor-pointer"
+                  className={`w-full h-14 text-lg ${btnRadius} shadow-lg flex items-center justify-center relative z-20 hover:scale-[1.02] active:scale-[0.98] transition-transform cursor-pointer`}
                   style={{ backgroundColor: 'var(--primary)', cursor: isStarting ? 'not-allowed' : 'pointer' }}
                 >
                   {isStarting ? (
@@ -1080,7 +1083,7 @@ export function Renderer({ slug }: { slug: string }) {
                     <Button
                       key={cta.id}
                       onClick={() => window.open(cta.url, '_blank', 'noopener,noreferrer')}
-                      className="h-12 px-6 text-base rounded-full shadow-lg"
+                      className={`h-12 px-6 text-base ${btnRadius} shadow-lg`}
                       style={{ backgroundColor: 'var(--primary)' }}
                       disabled={!cta.url}
                     >

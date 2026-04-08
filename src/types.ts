@@ -52,6 +52,8 @@ export interface Branding {
   textColor?: string;
   logoUrl?: string;
   fontFamily?: string;
+  /** Shape of primary action buttons. Defaults to 'pill' (fully rounded). */
+  buttonShape?: 'pill' | 'rounded' | 'square';
 }
 
 export interface CoverPage {

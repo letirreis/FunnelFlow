@@ -530,6 +530,39 @@ export function Builder({ funnelId, onBack }: { funnelId: string; onBack: () => 
                         <option value="font-mono">JetBrains Mono (Técnico)</option>
                       </select>
                     </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Formato dos Botões</label>
+                      <div className="flex gap-2">
+                        {([
+                          { value: 'pill', label: 'Arredondado', preview: 'rounded-full' },
+                          { value: 'rounded', label: 'Levemente', preview: 'rounded-lg' },
+                          { value: 'square', label: 'Quadrado', preview: 'rounded-none' },
+                        ] as const).map((opt) => {
+                          const active = (funnel.branding?.buttonShape ?? 'pill') === opt.value;
+                          return (
+                            <button
+                              key={opt.value}
+                              type="button"
+                              onClick={() => updateDoc(doc(db, 'funnels', funnelId), { 'branding.buttonShape': opt.value })}
+                              className={cn(
+                                'flex flex-1 flex-col items-center gap-2 rounded-lg border p-3 transition-colors',
+                                active ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:bg-slate-50'
+                              )}
+                            >
+                              <div
+                                className={cn('h-8 w-full max-w-[80px] text-xs font-medium text-white flex items-center justify-center', opt.preview)}
+                                style={{ backgroundColor: funnel.branding?.primaryColor || '#2563eb' }}
+                              >
+                                Botão
+                              </div>
+                              <span className={cn('text-xs font-medium', active ? 'text-blue-700' : 'text-slate-500')}>
+                                {opt.label}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
                 </Card>
               </section>
@@ -2104,7 +2137,7 @@ const DiagnosisCard = ({ diagnosis, funnelId }: { diagnosis: Diagnosis; funnelId
       </div>
       <Input 
         value={localTitle}
-        onChange={(e) => setLocalTitle(e.target.value)}
+        onChange={(e) => { setLocalTitle(e.target.value); update({ title: e.target.value }); }}
         onBlur={() => update({ title: localTitle })}
         placeholder="Título do Diagnóstico"
         className="font-bold"
@@ -2113,6 +2146,7 @@ const DiagnosisCard = ({ diagnosis, funnelId }: { diagnosis: Diagnosis; funnelId
         value={diagnosis.description}
         onChange={(html) => update({ description: html })}
         placeholder="Descrição detalhada..."
+        minHeight="8rem"
       />
       <div className="flex items-center gap-4">
         <div className="flex-1 space-y-1">
