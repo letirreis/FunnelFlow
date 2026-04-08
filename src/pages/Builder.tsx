@@ -517,6 +517,31 @@ export function Builder({ funnelId, onBack }: { funnelId: string; onBack: () => 
                       </div>
                     </div>
                     <div className="space-y-2">
+                      <label className="text-sm font-medium">Favicon (ícone da aba do navegador)</label>
+                      <div className="flex gap-2">
+                        <Input 
+                          value={funnel.branding?.faviconUrl || ''} 
+                          onChange={(e) => updateDoc(doc(db, 'funnels', funnelId), { 'branding.faviconUrl': e.target.value })}
+                          placeholder="https://exemplo.com/favicon.ico"
+                          className="flex-1"
+                        />
+                        <div className="relative">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => handleFileUpload(e, (url) => updateDoc(doc(db, 'funnels', funnelId), { 'branding.faviconUrl': url }))}
+                            className="absolute inset-0 opacity-0 cursor-pointer w-10"
+                          />
+                          <Button variant="secondary" className="px-3">
+                            <Upload className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                      {funnel.branding?.faviconUrl && (
+                        <img src={funnel.branding.faviconUrl} alt="Favicon preview" className="w-8 h-8 rounded border border-slate-200 object-contain" />
+                      )}
+                    </div>
+                    <div className="space-y-2">
                       <label className="text-sm font-medium">Fonte (Typography)</label>
                       <select 
                         className="w-full rounded-lg border border-slate-200 p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"

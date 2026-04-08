@@ -246,6 +246,17 @@ export function Renderer({ slug }: { slug: string }) {
           }
         }
 
+        // Apply funnel favicon if configured
+        if (fData.branding?.faviconUrl) {
+          let link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+          if (!link) {
+            link = document.createElement('link');
+            link.rel = 'icon';
+            document.head.appendChild(link);
+          }
+          link.href = fData.branding.faviconUrl;
+        }
+
         // A/B Testing Logic
         if (fData.abTesting?.enabled) {
           const assignedVariant = Math.random() > 0.5 ? 'B' : 'A';
