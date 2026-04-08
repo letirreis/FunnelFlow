@@ -818,7 +818,7 @@ export function Renderer({ slug }: { slug: string }) {
                 const isHtml = /<[a-z][\s\S]*>/i.test(desc);
                 return isHtml
                   ? <div
-                      className="mb-10 text-xl opacity-80 prose prose-xl max-w-none [&_p]:mb-3 [&_p:last-child]:mb-0"
+                      className="rich-text mb-10 text-xl opacity-80 max-w-none"
                       dangerouslySetInnerHTML={{ __html: desc }}
                     />
                   : <p className="mb-10 text-xl opacity-80 text-center">
@@ -879,7 +879,7 @@ export function Renderer({ slug }: { slug: string }) {
                 />
                 {currentQuestion.description && (
                   <div
-                    className="text-lg opacity-70"
+                    className="rich-text text-lg opacity-70"
                     dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(currentQuestion.description) }}
                   />
                 )}
@@ -1083,7 +1083,7 @@ export function Renderer({ slug }: { slug: string }) {
               
               <Card className="mb-10 p-8 text-left border-2 shadow-xl" style={{ borderColor: 'var(--primary)', backgroundColor: 'rgba(var(--primary), 0.05)' }}>
                 <div
-                  className="prose prose-lg max-w-none leading-relaxed opacity-80"
+                  className="rich-text prose prose-lg max-w-none leading-relaxed opacity-80"
                   dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(finalDiagnosis.description) }}
                 />
               </Card>
