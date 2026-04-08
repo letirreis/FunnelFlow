@@ -20,9 +20,10 @@ interface RichTextEditorProps {
   onChange: (html: string) => void;
   placeholder?: string;
   className?: string;
+  minHeight?: string;
 }
 
-export function RichTextEditor({ value, onChange, placeholder, className }: RichTextEditorProps) {
+export function RichTextEditor({ value, onChange, placeholder, className, minHeight = '2.5rem' }: RichTextEditorProps) {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showImageInput, setShowImageInput] = useState(false);
   const [imageUrl, setImageUrl] = useState('');
@@ -178,6 +179,26 @@ export function RichTextEditor({ value, onChange, placeholder, className }: Rich
 
         <div className="mx-1 h-5 w-px bg-slate-200" />
 
+        {/* Bullet list */}
+        <ToolbarBtn
+          onClick={() => editor.chain().focus().toggleBulletList().run()}
+          active={editor.isActive('bulletList')}
+          title="Lista com marcadores"
+        >
+          <BulletListIcon />
+        </ToolbarBtn>
+
+        {/* Ordered list */}
+        <ToolbarBtn
+          onClick={() => editor.chain().focus().toggleOrderedList().run()}
+          active={editor.isActive('orderedList')}
+          title="Lista numerada"
+        >
+          <OrderedListIcon />
+        </ToolbarBtn>
+
+        <div className="mx-1 h-5 w-px bg-slate-200" />
+
         {/* Emoji picker */}
         <div className="relative" ref={emojiRef}>
           <ToolbarBtn
@@ -246,7 +267,8 @@ export function RichTextEditor({ value, onChange, placeholder, className }: Rich
         )}
         <EditorContent
           editor={editor}
-          className="prose prose-sm max-w-none px-3 py-2.5 text-sm text-slate-900 focus:outline-none min-h-[2.5rem] [&_.ProseMirror]:outline-none"
+          className={`prose prose-sm max-w-none px-3 py-2.5 text-sm text-slate-900 focus:outline-none min-h-[2.5rem] [&_.ProseMirror]:outline-none`}
+          style={{ minHeight }}
         />
       </div>
     </div>
@@ -282,5 +304,17 @@ const AlignJustifyIcon = () => (
 const ImageIcon = () => (
   <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="currentColor">
     <path d="M14.5 2h-13A1.5 1.5 0 000 3.5v9A1.5 1.5 0 001.5 14h13a1.5 1.5 0 001.5-1.5v-9A1.5 1.5 0 0014.5 2zm-10 3a1.5 1.5 0 110 3 1.5 1.5 0 010-3zm9.5 7H2l4-5 2.5 3L11 8l3 4z"/>
+  </svg>
+);
+
+const BulletListIcon = () => (
+  <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="currentColor">
+    <path d="M2 4a1 1 0 110-2 1 1 0 010 2zm3-1.5h9v1.5H5zm0 4h9v1.5H5zm0 4h9v1.5H5zM2 9a1 1 0 110-2 1 1 0 010 2zm0 4a1 1 0 110-2 1 1 0 010 2z"/>
+  </svg>
+);
+
+const OrderedListIcon = () => (
+  <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="currentColor">
+    <path d="M1 1h1.5v3H1zm0 4h2v1H2v.5h1V7H1zm0 4h2v.5H2V10H1zm3-8h9v1.5H4zm0 4h9v1.5H4zm0 4h9v1.5H4z"/>
   </svg>
 );
