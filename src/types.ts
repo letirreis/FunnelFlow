@@ -51,6 +51,8 @@ export interface Branding {
   backgroundColor?: string;
   textColor?: string;
   logoUrl?: string;
+  /** URL of the favicon shown in the browser tab when the funnel is rendered. */
+  faviconUrl?: string;
   fontFamily?: string;
   /** Shape of primary action buttons. Defaults to 'pill' (fully rounded). */
   buttonShape?: 'pill' | 'rounded' | 'square';
