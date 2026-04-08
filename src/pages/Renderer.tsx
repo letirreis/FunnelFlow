@@ -1083,7 +1083,7 @@ export function Renderer({ slug }: { slug: string }) {
               
               <Card className="mb-10 p-8 text-left border-2 shadow-xl" style={{ borderColor: 'var(--primary)', backgroundColor: 'rgba(var(--primary), 0.05)' }}>
                 <div
-                  className="rich-text prose prose-lg max-w-none leading-relaxed opacity-80"
+                  className="rich-text max-w-none leading-relaxed opacity-80"
                   dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(finalDiagnosis.description) }}
                 />
               </Card>
