@@ -204,6 +204,11 @@ export interface Diagnosis {
   imageUrl?: string;
   /** Whether to show confetti animation when this diagnosis is the final result. Defaults to true. */
   showConfetti?: boolean;
+  /**
+   * When set, the Renderer will redirect to this URL after the "calculating" screen
+   * instead of displaying the diagnosis result inline.
+   */
+  redirectUrl?: string;
   ctas?: {
     id: string;
     type: 'custom' | 'whatsapp' | 'purchase' | 'video';

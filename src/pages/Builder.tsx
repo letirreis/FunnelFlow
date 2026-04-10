@@ -2094,13 +2094,17 @@ const DiagnosisCard = ({ diagnosis, funnelId }: { diagnosis: Diagnosis; funnelId
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   // Local state for the title input to avoid cursor-jumping on Firestore re-renders
   const [localTitle, setLocalTitle] = useState(diagnosis.title);
+  const [redirectEnabled, setRedirectEnabled] = useState(!!diagnosis.redirectUrl);
+  const [localRedirectUrl, setLocalRedirectUrl] = useState(diagnosis.redirectUrl || '');
   const prevDiagIdRef = useRef(diagnosis.id);
   useEffect(() => {
     if (diagnosis.id !== prevDiagIdRef.current) {
       prevDiagIdRef.current = diagnosis.id;
       setLocalTitle(diagnosis.title);
+      setRedirectEnabled(!!diagnosis.redirectUrl);
+      setLocalRedirectUrl(diagnosis.redirectUrl || '');
     }
-  }, [diagnosis.id, diagnosis.title]);
+  }, [diagnosis.id, diagnosis.title, diagnosis.redirectUrl]);
 
   const update = (data: Partial<Diagnosis>) => {
     updateDoc(doc(db, 'funnels', funnelId, 'diagnoses', diagnosis.id), data);
@@ -2200,6 +2204,50 @@ const DiagnosisCard = ({ diagnosis, funnelId }: { diagnosis: Diagnosis; funnelId
             }`}
           />
         </button>
+      </div>
+
+      <div className="space-y-2 rounded-lg border border-slate-200 px-3 py-2">
+        <div className="flex items-center justify-between">
+          <label className="text-xs font-medium text-slate-600">🔗 Redirecionar para página personalizada</label>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={redirectEnabled}
+            onClick={() => {
+              const next = !redirectEnabled;
+              setRedirectEnabled(next);
+              if (!next) {
+                setLocalRedirectUrl('');
+                update({ redirectUrl: '' });
+              }
+            }}
+            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${
+              redirectEnabled ? 'bg-blue-500' : 'bg-slate-200'
+            }`}
+          >
+            <span
+              className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
+                redirectEnabled ? 'translate-x-[18px]' : 'translate-x-[3px]'
+              }`}
+            />
+          </button>
+        </div>
+        {redirectEnabled && (
+          <>
+            <Input
+              value={localRedirectUrl}
+              onChange={(e) => {
+                setLocalRedirectUrl(e.target.value);
+                update({ redirectUrl: e.target.value });
+              }}
+              placeholder="https://suapagina.com/resultado"
+              className="text-xs"
+            />
+            <p className="text-[10px] text-slate-400">
+              Após a tela de "calculando", o usuário será redirecionado para esta URL em vez de ver o resultado inline.
+            </p>
+          </>
+        )}
       </div>
 
       <div className="space-y-3 rounded-lg border border-slate-200 p-3">
