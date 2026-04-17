@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, query, where, onSnapshot, orderBy, deleteDoc, doc, writeBatch, getDocs, addDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy, deleteDoc, doc, writeBatch, getDocs, addDoc, getDoc, limit } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Lead, WebhookConfig } from '../types';
 import { Card, Input } from '../components/ui';
@@ -8,6 +8,10 @@ import { Mail, Phone, Building, Download, Filter, X, Search, Trash2, AlertTriang
 import { cn } from '../components/ui';
 
 const FIRESTORE_BATCH_LIMIT = 500;
+
+function getWebhookEventForStatus(status: Lead['status']): 'response_submitted' | 'lead_captured' {
+  return status === 'completed' ? 'response_submitted' : 'lead_captured';
+}
 
 interface LeadsListProps {
   funnelId: string;
@@ -109,45 +113,121 @@ export function LeadsList({ funnelId, webhooks = [], funnelName = '' }: LeadsLis
   };
 
   const resendWebhook = async (lead: Lead) => {
-    const activeWebhooks = webhooks.filter(w => w.enabled && w.events.includes('lead_captured'));
+    const isCompleted = lead.status === 'completed';
+    const eventType = getWebhookEventForStatus(lead.status);
+
+    const activeWebhooks = webhooks.filter(w => w.enabled && w.events.includes(eventType));
     if (activeWebhooks.length === 0) return;
 
     setResendingWebhookLeadId(lead.id);
     setResendResult(null);
 
     const now = new Date().toISOString();
-    const payload = {
-      metadata: {
-        event: 'lead_captured',
-        source: 'FunnelBuilder Pro',
-        version: '1.0',
-        timestamp: now,
-      },
-      funnel: {
-        id: funnelId,
-        name: funnelName,
-      },
-      lead: {
-        id: lead.id,
-        name: lead.name,
-        email: lead.email,
-        ...(lead.phone ? { phone: lead.phone } : {}),
-        ...(lead.company ? { company: lead.company } : {}),
-        ...(lead.revenue ? { revenue: lead.revenue } : {}),
-        ...(lead.role ? { role: lead.role } : {}),
-        ...(lead.customFields ? { customFields: lead.customFields } : {}),
-        consent: lead.consent,
-      },
-      tracking: {
-        utm_source: lead.utm_source,
-        utm_medium: lead.utm_medium,
-        utm_campaign: lead.utm_campaign,
-        utm_content: lead.utm_content,
-        utm_term: lead.utm_term,
-        referrer: lead.referrer,
-        device: lead.device,
-      },
+
+    const leadBlock = {
+      id: lead.id,
+      name: lead.name,
+      email: lead.email,
+      ...(lead.phone ? { phone: lead.phone } : {}),
+      ...(lead.company ? { company: lead.company } : {}),
+      ...(lead.revenue ? { revenue: lead.revenue } : {}),
+      ...(lead.role ? { role: lead.role } : {}),
+      ...(lead.customFields ? { customFields: lead.customFields } : {}),
+      consent: lead.consent,
     };
+
+    const trackingBlock = {
+      utm_source: lead.utm_source,
+      utm_medium: lead.utm_medium,
+      utm_campaign: lead.utm_campaign,
+      utm_content: lead.utm_content,
+      utm_term: lead.utm_term,
+      referrer: lead.referrer,
+      device: lead.device,
+    };
+
+    let payload: Record<string, unknown>;
+
+    if (isCompleted) {
+      // Fetch the latest response document for this lead
+      let responseScore = 0;
+      let responseIsDisqualified: boolean = lead.isDisqualified ?? false;
+      let responseDisqualifiedReason: string | null = lead.disqualifiedReason ?? null;
+      let diagnosisTitle = 'N/A';
+      let diagnosisDescription = '';
+      let diagnosisId: string | null = null;
+
+      try {
+        const qResponse = query(
+          collection(db, 'responses'),
+          where('leadId', '==', lead.id),
+          orderBy('createdAt', 'desc'),
+          limit(1)
+        );
+        const responseSnap = await getDocs(qResponse);
+        if (!responseSnap.empty) {
+          const rd = responseSnap.docs[0].data();
+          responseScore = rd.score ?? 0;
+          responseIsDisqualified = rd.isDisqualified ?? responseIsDisqualified;
+          responseDisqualifiedReason = rd.disqualifiedReason ?? responseDisqualifiedReason;
+          diagnosisId = rd.diagnosisId || null;
+        }
+      } catch (err) {
+        console.error('Failed to fetch response for webhook resend:', err);
+      }
+
+      if (diagnosisId && diagnosisId !== 'none' && diagnosisId !== '') {
+        try {
+          const diagSnap = await getDoc(doc(db, 'funnels', funnelId, 'diagnoses', diagnosisId));
+          if (diagSnap.exists()) {
+            const dd = diagSnap.data();
+            diagnosisTitle = dd.title || 'N/A';
+            diagnosisDescription = dd.description || '';
+          }
+        } catch (err) {
+          console.error('Failed to fetch diagnosis for webhook resend:', err);
+        }
+      }
+
+      payload = {
+        metadata: {
+          event: 'response_submitted',
+          source: 'FunnelBuilder Pro',
+          version: '1.0',
+          timestamp: now,
+        },
+        funnel: {
+          id: funnelId,
+          name: funnelName,
+        },
+        lead: leadBlock,
+        tracking: trackingBlock,
+        results: {
+          score: responseScore,
+          isDisqualified: responseIsDisqualified,
+          disqualifiedReason: responseDisqualifiedReason,
+          diagnosis: {
+            title: diagnosisTitle,
+            description: diagnosisDescription,
+          },
+        },
+      };
+    } else {
+      payload = {
+        metadata: {
+          event: 'lead_captured',
+          source: 'FunnelBuilder Pro',
+          version: '1.0',
+          timestamp: now,
+        },
+        funnel: {
+          id: funnelId,
+          name: funnelName,
+        },
+        lead: leadBlock,
+        tracking: trackingBlock,
+      };
+    }
 
     let anySuccess = false;
     await Promise.all(activeWebhooks.map(async (webhook) => {
@@ -174,7 +254,7 @@ export function LeadsList({ funnelId, webhooks = [], funnelName = '' }: LeadsLis
           funnelId,
           webhookId: webhook.id,
           webhookUrl: webhook.url,
-          event: 'lead_captured',
+          event: eventType,
           payload,
           status,
           ...(statusCode !== undefined ? { statusCode } : {}),
@@ -387,7 +467,7 @@ export function LeadsList({ funnelId, webhooks = [], funnelName = '' }: LeadsLis
                   </td>
                   <td className="px-4 py-4 text-right">
                     <div className="flex items-center justify-end gap-1">
-                      {webhooks.some(w => w.enabled && w.events.includes('lead_captured')) && (
+                      {webhooks.some(w => w.enabled && w.events.includes(getWebhookEventForStatus(lead.status))) && (
                         leadToDelete !== lead.id && (
                           resendResult?.leadId === lead.id ? (
                             <span className={cn(
