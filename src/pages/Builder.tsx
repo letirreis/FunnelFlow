@@ -652,6 +652,7 @@ export function Builder({ funnelId, onBack }: { funnelId: string; onBack: () => 
           <div className="p-8">
             <div className="mx-auto max-w-3xl">
               <IntegrationsTab 
+                funnelId={funnelId}
                 webhooks={funnel.integrations?.webhooks || []}
                 onUpdate={(webhooks) => updateDoc(doc(db, 'funnels', funnelId), {
                   'integrations.webhooks': webhooks

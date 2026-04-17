@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { collection, query, where, getDocs, orderBy, addDoc, serverTimestamp, updateDoc, doc } from 'firebase/firestore';
 import { db, auth } from '../firebase';
-import { Funnel, Question, AnswerOption, Diagnosis, Lead, TrackingData, LogicRule, DEFAULT_LEAD_FIELDS, LeadFormField } from '../types';
+import { Funnel, Question, AnswerOption, Diagnosis, Lead, TrackingData, LogicRule, DEFAULT_LEAD_FIELDS, LeadFormField, WebhookConfig } from '../types';
 import { Button, Card, Input } from '../components/ui';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronRight, ChevronLeft, CheckCircle2, Layout, ArrowRight, XCircle } from 'lucide-react';
@@ -162,6 +162,54 @@ async function fireMetaConversionsEvent(
 
 const CALCULATING_DELAY_MS = 2500;
 const INCOMPLETE_LEAD_WEBHOOK_DELAY_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+// ─── Webhook dispatch helper ─────────────────────────────────────────────────
+// Sends a webhook POST and writes a delivery log to Firestore.
+async function dispatchWebhook(
+  funnelId: string,
+  webhook: WebhookConfig,
+  event: 'lead_captured' | 'response_submitted',
+  payload: Record<string, unknown>
+): Promise<void> {
+  const now = new Date().toISOString();
+  let status: 'success' | 'error' = 'error';
+  let statusCode: number | undefined;
+  let errorMessage: string | undefined;
+
+  try {
+    const response = await fetch(webhook.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Webhook-Secret': webhook.secret || '' },
+      body: JSON.stringify({ ...payload, security: { secret: webhook.secret } })
+    });
+    statusCode = response.status;
+    status = response.ok ? 'success' : 'error';
+    if (!response.ok) {
+      errorMessage = `HTTP ${response.status}`;
+    }
+  } catch (err) {
+    errorMessage = err instanceof Error ? err.message : String(err);
+    console.error('Webhook dispatch failed:', err);
+  }
+
+  try {
+    await addDoc(collection(db, 'funnels', funnelId, 'webhookLogs'), {
+      funnelId,
+      webhookId: webhook.id,
+      webhookUrl: webhook.url,
+      event,
+      payload,
+      status,
+      ...(statusCode !== undefined ? { statusCode } : {}),
+      ...(errorMessage ? { errorMessage } : {}),
+      attemptCount: 1,
+      createdAt: now,
+      lastAttemptAt: now,
+    });
+  } catch (logErr) {
+    console.error('Failed to write webhook log:', logErr);
+  }
+}
 
 export function Renderer({ slug }: { slug: string }) {
   const [funnel, setFunnel] = useState<Funnel | null>(null);
@@ -606,11 +654,7 @@ export function Renderer({ slug }: { slug: string }) {
 
             incompleteWebhookTimerRef.current = setTimeout(() => {
               leadCapturedWebhooks.forEach(webhook => {
-                fetch(webhook.url, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json', 'X-Webhook-Secret': webhook.secret || '' },
-                  body: JSON.stringify({ ...capturePayload, security: { secret: webhook.secret } })
-                }).catch(err => console.error('Webhook failed:', err));
+                dispatchWebhook(funnel.id, webhook, 'lead_captured', capturePayload);
               });
               incompleteWebhookTimerRef.current = null;
             }, INCOMPLETE_LEAD_WEBHOOK_DELAY_MS);
@@ -749,11 +793,7 @@ export function Renderer({ slug }: { slug: string }) {
           };
 
           activeWebhooks.forEach(webhook => {
-            fetch(webhook.url, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'X-Webhook-Secret': webhook.secret || '' },
-              body: JSON.stringify({ ...payload, security: { secret: webhook.secret } })
-            }).catch(err => console.error('Webhook failed:', err));
+            dispatchWebhook(funnel.id, webhook, 'response_submitted', payload);
           });
         }
       }

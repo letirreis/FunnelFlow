@@ -49,6 +49,13 @@ service cloud.firestore {
         allow read: if true;
         allow write: if hasStaffAccess();
       }
+
+      match /webhookLogs/{logId} {
+        allow read: if hasStaffAccess();
+        allow create: if true; // Written by the public-facing Renderer and by staff for reprocessing
+        allow update: if hasStaffAccess(); // Allow staff to update attempt count / status on reprocess
+        allow delete: if isAdmin();
+      }
     }
 
     // Leads

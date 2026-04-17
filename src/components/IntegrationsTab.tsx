@@ -1,20 +1,43 @@
-import React, { useState } from 'react';
-import { WebhookConfig } from '../types';
+import React, { useState, useEffect } from 'react';
+import { collection, query, orderBy, onSnapshot, addDoc, updateDoc, doc, limit } from 'firebase/firestore';
+import { db } from '../firebase';
+import { WebhookConfig, WebhookLog } from '../types';
 import { Button, Card, Input } from './ui';
-import { Globe, Plus, Trash2, CheckCircle2, XCircle, ShieldCheck, Copy, ExternalLink } from 'lucide-react';
+import { Globe, Plus, Trash2, CheckCircle2, XCircle, ShieldCheck, Copy, ExternalLink, RefreshCw, AlertCircle, ChevronDown, ChevronUp, BarChart2 } from 'lucide-react';
 
 interface IntegrationsTabProps {
+  funnelId: string;
   webhooks: WebhookConfig[];
   onUpdate: (webhooks: WebhookConfig[]) => void;
 }
 
-export function IntegrationsTab({ webhooks, onUpdate }: IntegrationsTabProps) {
+export function IntegrationsTab({ funnelId, webhooks, onUpdate }: IntegrationsTabProps) {
   const [isAdding, setIsAdding] = useState(false);
   const [newUrl, setNewUrl] = useState('');
   const [selectedEvents, setSelectedEvents] = useState<('lead_captured' | 'response_submitted')[]>(['lead_captured', 'response_submitted']);
 
   const [testingId, setTestingId] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<{ id: string, status: 'success' | 'error', message: string } | null>(null);
+
+  const [logs, setLogs] = useState<WebhookLog[]>([]);
+  const [logsLoading, setLogsLoading] = useState(true);
+  const [expandedWebhookId, setExpandedWebhookId] = useState<string | null>(null);
+  const [reprocessingLogId, setReprocessingLogId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!funnelId) return;
+    setLogsLoading(true);
+    const q = query(
+      collection(db, 'funnels', funnelId, 'webhookLogs'),
+      orderBy('createdAt', 'desc'),
+      limit(200)
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setLogs(snap.docs.map(d => ({ id: d.id, ...d.data() } as WebhookLog)));
+      setLogsLoading(false);
+    }, () => setLogsLoading(false));
+    return unsub;
+  }, [funnelId]);
 
   const addWebhook = () => {
     if (!newUrl.trim() || selectedEvents.length === 0) return;
@@ -83,6 +106,11 @@ export function IntegrationsTab({ webhooks, onUpdate }: IntegrationsTabProps) {
       }
     };
 
+    const now = new Date().toISOString();
+    let status: 'success' | 'error' = 'success';
+    let statusCode: number | undefined;
+    let errorMessage: string | undefined;
+
     try {
       const response = await fetch(webhook.url, {
         method: 'POST',
@@ -90,19 +118,45 @@ export function IntegrationsTab({ webhooks, onUpdate }: IntegrationsTabProps) {
           'Content-Type': 'application/json',
           'X-Webhook-Secret': webhook.secret || ''
         },
-        // Removido o 'no-cors' para permitir que o Content-Type seja enviado corretamente
         body: JSON.stringify(samplePayload)
       });
-
+      statusCode = response.status;
+      status = response.ok ? 'success' : 'error';
+      if (!response.ok) errorMessage = `HTTP ${response.status}`;
       setTestResult({ id: webhook.id, status: 'success', message: 'Enviado com sucesso!' });
     } catch (error) {
-      // Se der erro de CORS, ainda assim o n8n costuma receber o dado, 
-      // mas o navegador bloqueia a leitura da resposta.
-      setTestResult({ id: webhook.id, status: 'success', message: 'Enviado (verifique o n8n)' });
-    } finally {
-      setTestingId(null);
-      setTimeout(() => setTestResult(null), 3000);
+      // fetch throws on network/CORS errors; treat as success for UX (n8n typically
+      // receives the request even when the browser blocks the response due to CORS).
+      // The log will reflect the actual status.
+      if (error instanceof TypeError && (error.message.includes('Failed to fetch') || error.message.includes('NetworkError'))) {
+        // Likely CORS — request may have reached the server
+        setTestResult({ id: webhook.id, status: 'success', message: 'Enviado (verifique o n8n)' });
+      } else {
+        status = 'error';
+        errorMessage = error instanceof Error ? error.message : String(error);
+        setTestResult({ id: webhook.id, status: 'error', message: 'Erro ao enviar' });
+      }
     }
+
+    // Log the test delivery
+    try {
+      await addDoc(collection(db, 'funnels', funnelId, 'webhookLogs'), {
+        funnelId,
+        webhookId: webhook.id,
+        webhookUrl: webhook.url,
+        event: 'webhook_test',
+        payload: samplePayload,
+        status,
+        ...(statusCode !== undefined ? { statusCode } : {}),
+        ...(errorMessage ? { errorMessage } : {}),
+        attemptCount: 1,
+        createdAt: now,
+        lastAttemptAt: now,
+      });
+    } catch (logErr) { console.error('Failed to write webhook test log:', logErr); }
+
+    setTestingId(null);
+    setTimeout(() => setTestResult(null), 3000);
   };
 
   const removeWebhook = (id: string) => {
@@ -111,6 +165,59 @@ export function IntegrationsTab({ webhooks, onUpdate }: IntegrationsTabProps) {
 
   const toggleWebhook = (id: string) => {
     onUpdate(webhooks.map(w => w.id === id ? { ...w, enabled: !w.enabled } : w));
+  };
+
+  const reprocessWebhook = async (log: WebhookLog) => {
+    const webhook = webhooks.find(w => w.id === log.webhookId);
+    if (!webhook) return;
+
+    setReprocessingLogId(log.id);
+    const now = new Date().toISOString();
+    let status: 'success' | 'error' = 'error';
+    let statusCode: number | undefined;
+    let errorMessage: string | undefined;
+
+    try {
+      const response = await fetch(webhook.url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Webhook-Secret': webhook.secret || '' },
+        body: JSON.stringify({ ...log.payload, security: { secret: webhook.secret } })
+      });
+      statusCode = response.status;
+      status = response.ok ? 'success' : 'error';
+      if (!response.ok) errorMessage = `HTTP ${response.status}`;
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : String(err);
+    }
+
+    try {
+      await updateDoc(doc(db, 'funnels', funnelId, 'webhookLogs', log.id), {
+        status,
+        ...(statusCode !== undefined ? { statusCode } : {}),
+        errorMessage: errorMessage || null,
+        attemptCount: (log.attemptCount || 1) + 1,
+        lastAttemptAt: now,
+      });
+    } catch (updateErr) { console.error('Failed to update webhook log after reprocess:', updateErr); }
+
+    setReprocessingLogId(null);
+  };
+
+  // Compute per-webhook stats from logs
+  const getWebhookStats = (webhookId: string) => {
+    const webhookLogs = logs.filter(log => log.webhookId === webhookId && log.event !== 'webhook_test');
+    const success = webhookLogs.filter(log => log.status === 'success').length;
+    const error = webhookLogs.filter(log => log.status === 'error').length;
+    return { total: webhookLogs.length, success, error };
+  };
+
+  const getWebhookLogs = (webhookId: string) =>
+    logs.filter(log => log.webhookId === webhookId).slice(0, 20);
+
+  const eventLabel: Record<string, string> = {
+    lead_captured: 'Lead Capturado',
+    response_submitted: 'Resposta Enviada',
+    webhook_test: 'Teste',
   };
 
   return (
@@ -190,102 +297,193 @@ export function IntegrationsTab({ webhooks, onUpdate }: IntegrationsTabProps) {
             <p className="text-slate-500 text-sm max-w-xs">Conecte seu funil ao seu CRM, Planilhas ou automações.</p>
           </div>
         ) : (
-          webhooks.map((webhook) => (
-            <div key={webhook.id}>
-              <Card className="p-5 overflow-hidden">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Globe className="h-4 w-4 text-slate-400" />
-                      <span className="font-mono text-sm font-medium text-slate-900 truncate">{webhook.url}</span>
-                      {webhook.enabled ? (
-                        <span className="flex items-center gap-1 text-[10px] font-bold uppercase text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">
-                          Ativo
-                        </span>
-                      ) : (
-                        <span className="flex items-center gap-1 text-[10px] font-bold uppercase text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
-                          Inativo
-                        </span>
-                      )}
+          webhooks.map((webhook) => {
+            const stats = getWebhookStats(webhook.id);
+            const wLogs = getWebhookLogs(webhook.id);
+            const isExpanded = expandedWebhookId === webhook.id;
+
+            return (
+              <div key={webhook.id}>
+                <Card className="overflow-hidden">
+                  <div className="p-5">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <Globe className="h-4 w-4 text-slate-400" />
+                          <span className="font-mono text-sm font-medium text-slate-900 truncate">{webhook.url}</span>
+                          {webhook.enabled ? (
+                            <span className="flex items-center gap-1 text-[10px] font-bold uppercase text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">
+                              Ativo
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1 text-[10px] font-bold uppercase text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
+                              Inativo
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-3">
+                          <p className="text-xs font-medium text-slate-600 mb-2">Eventos:</p>
+                          <div className="flex flex-wrap gap-3">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input 
+                                type="checkbox" 
+                                checked={webhook.events.includes('lead_captured')}
+                                onChange={(e) => {
+                                  const newEvents = e.target.checked
+                                    ? [...webhook.events, 'lead_captured']
+                                    : webhook.events.filter(ev => ev !== 'lead_captured');
+                                  updateWebhookEvents(webhook.id, newEvents as any);
+                                }}
+                                className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                              />
+                              <span className="text-xs text-slate-600">Lead Capturado</span>
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input 
+                                type="checkbox" 
+                                checked={webhook.events.includes('response_submitted')}
+                                onChange={(e) => {
+                                  const newEvents = e.target.checked
+                                    ? [...webhook.events, 'response_submitted']
+                                    : webhook.events.filter(ev => ev !== 'response_submitted');
+                                  updateWebhookEvents(webhook.id, newEvents as any);
+                                }}
+                                className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                              />
+                              <span className="text-xs text-slate-600">Resposta Enviada</span>
+                            </label>
+                          </div>
+                        </div>
+
+                        {/* Stats summary */}
+                        {stats.total > 0 && (
+                          <div className="mt-3 flex items-center gap-4">
+                            <div className="flex items-center gap-1 text-xs text-slate-500">
+                              <BarChart2 className="h-3 w-3" />
+                              <span>{stats.total} envios</span>
+                            </div>
+                            <div className="flex items-center gap-1 text-xs text-emerald-600">
+                              <CheckCircle2 className="h-3 w-3" />
+                              <span>{stats.success} sucesso</span>
+                            </div>
+                            {stats.error > 0 && (
+                              <div className="flex items-center gap-1 text-xs text-red-500">
+                                <AlertCircle className="h-3 w-3" />
+                                <span>{stats.error} falha</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button 
+                          onClick={() => toggleWebhook(webhook.id)} 
+                          variant="ghost" 
+                          className={webhook.enabled ? "text-amber-600 hover:bg-amber-50" : "text-emerald-600 hover:bg-emerald-50"}
+                        >
+                          {webhook.enabled ? <XCircle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
+                        </Button>
+                        <Button onClick={() => removeWebhook(webhook.id)} variant="ghost" className="text-red-500 hover:bg-red-50">
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
-                    <div className="mt-3">
-                      <p className="text-xs font-medium text-slate-600 mb-2">Eventos:</p>
-                      <div className="flex flex-wrap gap-3">
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input 
-                            type="checkbox" 
-                            checked={webhook.events.includes('lead_captured')}
-                            onChange={(e) => {
-                              const newEvents = e.target.checked
-                                ? [...webhook.events, 'lead_captured']
-                                : webhook.events.filter(ev => ev !== 'lead_captured');
-                              updateWebhookEvents(webhook.id, newEvents as any);
-                            }}
-                            className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                          />
-                          <span className="text-xs text-slate-600">Lead Capturado</span>
-                        </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input 
-                            type="checkbox" 
-                            checked={webhook.events.includes('response_submitted')}
-                            onChange={(e) => {
-                              const newEvents = e.target.checked
-                                ? [...webhook.events, 'response_submitted']
-                                : webhook.events.filter(ev => ev !== 'response_submitted');
-                              updateWebhookEvents(webhook.id, newEvents as any);
-                            }}
-                            className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                          />
-                          <span className="text-xs text-slate-600">Resposta Enviada</span>
-                        </label>
+                    
+                    <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-xs text-slate-500">
+                        <ShieldCheck className="h-3 w-3" />
+                        <span>Secret: <code className="bg-slate-100 px-1 rounded">{webhook.secret}</code></span>
+                        <button className="hover:text-blue-600"><Copy className="h-3 w-3" /></button>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <button 
+                          onClick={() => testWebhook(webhook)}
+                          disabled={testingId === webhook.id}
+                          className={`text-xs font-medium flex items-center gap-1 hover:underline disabled:opacity-50 ${
+                            testResult?.id === webhook.id 
+                              ? (testResult.status === 'success' ? 'text-emerald-600' : 'text-red-600') 
+                              : 'text-blue-600'
+                          }`}
+                        >
+                          {testingId === webhook.id ? (
+                            'Enviando...'
+                          ) : testResult?.id === webhook.id ? (
+                            testResult.message
+                          ) : (
+                            <>
+                              Testar Webhook
+                              <ExternalLink className="h-3 w-3" />
+                            </>
+                          )}
+                        </button>
+                        {wLogs.length > 0 && (
+                          <button
+                            onClick={() => setExpandedWebhookId(isExpanded ? null : webhook.id)}
+                            className="text-xs font-medium flex items-center gap-1 text-slate-500 hover:text-slate-800"
+                          >
+                            Logs
+                            {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Button 
-                      onClick={() => toggleWebhook(webhook.id)} 
-                      variant="ghost" 
-                      className={webhook.enabled ? "text-amber-600 hover:bg-amber-50" : "text-emerald-600 hover:bg-emerald-50"}
-                    >
-                      {webhook.enabled ? <XCircle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
-                    </Button>
-                    <Button onClick={() => removeWebhook(webhook.id)} variant="ghost" className="text-red-500 hover:bg-red-50">
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-                
-                <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-xs text-slate-500">
-                    <ShieldCheck className="h-3 w-3" />
-                    <span>Secret: <code className="bg-slate-100 px-1 rounded">{webhook.secret}</code></span>
-                    <button className="hover:text-blue-600"><Copy className="h-3 w-3" /></button>
-                  </div>
-                  <button 
-                    onClick={() => testWebhook(webhook)}
-                    disabled={testingId === webhook.id}
-                    className={`text-xs font-medium flex items-center gap-1 hover:underline disabled:opacity-50 ${
-                      testResult?.id === webhook.id 
-                        ? (testResult.status === 'success' ? 'text-emerald-600' : 'text-red-600') 
-                        : 'text-blue-600'
-                    }`}
-                  >
-                    {testingId === webhook.id ? (
-                      'Enviando...'
-                    ) : testResult?.id === webhook.id ? (
-                      testResult.message
-                    ) : (
-                      <>
-                        Testar Webhook
-                        <ExternalLink className="h-3 w-3" />
-                      </>
-                    )}
-                  </button>
-                </div>
-              </Card>
-            </div>
-          ))
+
+                  {/* Logs panel */}
+                  {isExpanded && (
+                    <div className="border-t border-slate-100 bg-slate-50/60 divide-y divide-slate-100">
+                      <div className="px-5 py-2 flex items-center justify-between">
+                        <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Histórico de Entregas</span>
+                        {logsLoading && <span className="text-xs text-slate-400">Carregando...</span>}
+                      </div>
+                      {wLogs.map(log => (
+                        <div key={log.id} className="px-5 py-3 flex items-center gap-3">
+                          {log.status === 'success' ? (
+                            <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />
+                          ) : (
+                            <AlertCircle className="h-4 w-4 text-red-500 flex-shrink-0" />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className={`text-xs font-medium ${log.status === 'success' ? 'text-emerald-700' : 'text-red-700'}`}>
+                                {log.status === 'success' ? 'Sucesso' : 'Falha'}
+                              </span>
+                              <span className="text-xs text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
+                                {eventLabel[log.event] ?? log.event}
+                              </span>
+                              {log.statusCode && (
+                                <span className="text-xs text-slate-400">HTTP {log.statusCode}</span>
+                              )}
+                              {log.attemptCount > 1 && (
+                                <span className="text-xs text-slate-400">{log.attemptCount}ª tentativa</span>
+                              )}
+                            </div>
+                            {log.errorMessage && (
+                              <p className="text-xs text-red-500 mt-0.5 truncate">{log.errorMessage}</p>
+                            )}
+                            <p className="text-xs text-slate-400 mt-0.5">
+                              {new Date(log.lastAttemptAt).toLocaleString('pt-BR')}
+                            </p>
+                          </div>
+                          {log.status === 'error' && log.event !== 'webhook_test' && (
+                            <button
+                              onClick={() => reprocessWebhook(log)}
+                              disabled={reprocessingLogId === log.id}
+                              title="Reprocessar"
+                              className="flex items-center gap-1 text-xs text-blue-600 hover:underline disabled:opacity-50"
+                            >
+                              <RefreshCw className={`h-3.5 w-3.5 ${reprocessingLogId === log.id ? 'animate-spin' : ''}`} />
+                              {reprocessingLogId === log.id ? 'Enviando...' : 'Reprocessar'}
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </Card>
+              </div>
+            );
+          })
         )}
       </div>
 

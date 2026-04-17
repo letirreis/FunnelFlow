@@ -116,6 +116,21 @@ export interface WebhookConfig {
   secret?: string;
 }
 
+export interface WebhookLog {
+  id: string;
+  funnelId: string;
+  webhookId: string;
+  webhookUrl: string;
+  event: 'lead_captured' | 'response_submitted' | 'webhook_test';
+  payload: Record<string, unknown>;
+  status: 'success' | 'error';
+  statusCode?: number;
+  errorMessage?: string;
+  attemptCount: number;
+  createdAt: string;
+  lastAttemptAt: string;
+}
+
 export interface Funnel {
   id: string;
   ownerId: string;
