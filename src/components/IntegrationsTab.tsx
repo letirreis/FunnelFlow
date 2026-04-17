@@ -23,6 +23,7 @@ export function IntegrationsTab({ funnelId, webhooks, onUpdate }: IntegrationsTa
   const [logsLoading, setLogsLoading] = useState(true);
   const [expandedWebhookId, setExpandedWebhookId] = useState<string | null>(null);
   const [reprocessingLogId, setReprocessingLogId] = useState<string | null>(null);
+  const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!funnelId) return;
@@ -437,44 +438,63 @@ export function IntegrationsTab({ funnelId, webhooks, onUpdate }: IntegrationsTa
                         {logsLoading && <span className="text-xs text-slate-400">Carregando...</span>}
                       </div>
                       {wLogs.map(log => (
-                        <div key={log.id} className="px-5 py-3 flex items-center gap-3">
-                          {log.status === 'success' ? (
-                            <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />
-                          ) : (
-                            <AlertCircle className="h-4 w-4 text-red-500 flex-shrink-0" />
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className={`text-xs font-medium ${log.status === 'success' ? 'text-emerald-700' : 'text-red-700'}`}>
-                                {log.status === 'success' ? 'Sucesso' : 'Falha'}
-                              </span>
-                              <span className="text-xs text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
-                                {eventLabel[log.event] ?? log.event}
-                              </span>
-                              {log.statusCode && (
-                                <span className="text-xs text-slate-400">HTTP {log.statusCode}</span>
-                              )}
-                              {log.attemptCount > 1 && (
-                                <span className="text-xs text-slate-400">{log.attemptCount}ª tentativa</span>
-                              )}
-                            </div>
-                            {log.errorMessage && (
-                              <p className="text-xs text-red-500 mt-0.5 truncate">{log.errorMessage}</p>
+                        <div key={log.id} className="divide-y divide-slate-100">
+                          <div className="px-5 py-3 flex items-start gap-3">
+                            {log.status === 'success' ? (
+                              <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0 mt-0.5" />
+                            ) : (
+                              <AlertCircle className="h-4 w-4 text-red-500 flex-shrink-0 mt-0.5" />
                             )}
-                            <p className="text-xs text-slate-400 mt-0.5">
-                              {new Date(log.lastAttemptAt).toLocaleString('pt-BR')}
-                            </p>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className={`text-xs font-medium ${log.status === 'success' ? 'text-emerald-700' : 'text-red-700'}`}>
+                                  {log.status === 'success' ? 'Sucesso' : 'Falha'}
+                                </span>
+                                <span className="text-xs text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
+                                  {eventLabel[log.event] ?? log.event}
+                                </span>
+                                {log.statusCode && (
+                                  <span className="text-xs text-slate-400">HTTP {log.statusCode}</span>
+                                )}
+                                {log.attemptCount > 1 && (
+                                  <span className="text-xs text-slate-400">{log.attemptCount}ª tentativa</span>
+                                )}
+                              </div>
+                              {log.errorMessage && (
+                                <p className="text-xs text-red-500 mt-0.5 break-all">{log.errorMessage}</p>
+                              )}
+                              <p className="text-xs text-slate-400 mt-0.5">
+                                {new Date(log.lastAttemptAt).toLocaleString('pt-BR')}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              {log.event !== 'webhook_test' && (
+                                <button
+                                  onClick={() => reprocessWebhook(log)}
+                                  disabled={reprocessingLogId === log.id}
+                                  title="Reprocessar"
+                                  className="flex items-center gap-1 text-xs text-blue-600 hover:underline disabled:opacity-50"
+                                >
+                                  <RefreshCw className={`h-3.5 w-3.5 ${reprocessingLogId === log.id ? 'animate-spin' : ''}`} />
+                                  {reprocessingLogId === log.id ? 'Enviando...' : 'Reprocessar'}
+                                </button>
+                              )}
+                              <button
+                                onClick={() => setExpandedLogId(expandedLogId === log.id ? null : log.id)}
+                                className="text-xs text-slate-400 hover:text-slate-700 flex items-center gap-0.5"
+                                title="Ver payload"
+                              >
+                                Payload
+                                {expandedLogId === log.id ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                              </button>
+                            </div>
                           </div>
-                          {log.status === 'error' && log.event !== 'webhook_test' && (
-                            <button
-                              onClick={() => reprocessWebhook(log)}
-                              disabled={reprocessingLogId === log.id}
-                              title="Reprocessar"
-                              className="flex items-center gap-1 text-xs text-blue-600 hover:underline disabled:opacity-50"
-                            >
-                              <RefreshCw className={`h-3.5 w-3.5 ${reprocessingLogId === log.id ? 'animate-spin' : ''}`} />
-                              {reprocessingLogId === log.id ? 'Enviando...' : 'Reprocessar'}
-                            </button>
+                          {expandedLogId === log.id && (
+                            <div className="px-5 py-3 bg-slate-900">
+                              <pre className="text-xs text-slate-200 overflow-x-auto whitespace-pre-wrap break-all max-h-64">
+                                {JSON.stringify(log.payload, null, 2)}
+                              </pre>
+                            </div>
                           )}
                         </div>
                       ))}
