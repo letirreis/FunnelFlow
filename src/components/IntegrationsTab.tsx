@@ -491,7 +491,7 @@ export function IntegrationsTab({ funnelId, webhooks, onUpdate }: IntegrationsTa
                           </div>
                           {expandedLogId === log.id && (
                             <div className="px-5 py-3 bg-slate-900">
-                              <pre className="text-xs text-slate-200 overflow-x-auto whitespace-pre-wrap break-all max-h-64">
+                              <pre className="text-xs text-slate-200 overflow-auto whitespace-pre max-h-64">
                                 {JSON.stringify(log.payload, null, 2)}
                               </pre>
                             </div>
