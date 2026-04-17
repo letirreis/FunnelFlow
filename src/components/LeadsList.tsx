@@ -1,15 +1,21 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, query, where, onSnapshot, orderBy, deleteDoc, doc, writeBatch, getDocs } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy, deleteDoc, doc, writeBatch, getDocs, addDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Lead } from '../types';
+import { Lead, WebhookConfig } from '../types';
 import { Card, Input } from '../components/ui';
 import { format } from 'date-fns';
-import { Mail, Phone, Building, Download, Filter, X, Search, Trash2, AlertTriangle } from 'lucide-react';
+import { Mail, Phone, Building, Download, Filter, X, Search, Trash2, AlertTriangle, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react';
 import { cn } from '../components/ui';
 
 const FIRESTORE_BATCH_LIMIT = 500;
 
-export function LeadsList({ funnelId }: { funnelId: string }) {
+interface LeadsListProps {
+  funnelId: string;
+  webhooks?: WebhookConfig[];
+  funnelName?: string;
+}
+
+export function LeadsList({ funnelId, webhooks = [], funnelName = '' }: LeadsListProps) {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({
@@ -23,6 +29,8 @@ export function LeadsList({ funnelId }: { funnelId: string }) {
   const [leadToDelete, setLeadToDelete] = useState<string | null>(null);
   const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false);
   const [isDeletingAll, setIsDeletingAll] = useState(false);
+  const [resendingWebhookLeadId, setResendingWebhookLeadId] = useState<string | null>(null);
+  const [resendResult, setResendResult] = useState<{ leadId: string; status: 'success' | 'error' } | null>(null);
 
   useEffect(() => {
     const q = query(
@@ -98,6 +106,91 @@ export function LeadsList({ funnelId }: { funnelId: string }) {
     } finally {
       setIsDeletingAll(false);
     }
+  };
+
+  const resendWebhook = async (lead: Lead) => {
+    const activeWebhooks = webhooks.filter(w => w.enabled && w.events.includes('lead_captured'));
+    if (activeWebhooks.length === 0) return;
+
+    setResendingWebhookLeadId(lead.id);
+    setResendResult(null);
+
+    const now = new Date().toISOString();
+    const payload = {
+      metadata: {
+        event: 'lead_captured',
+        source: 'FunnelBuilder Pro',
+        version: '1.0',
+        timestamp: now,
+      },
+      funnel: {
+        id: funnelId,
+        name: funnelName,
+      },
+      lead: {
+        id: lead.id,
+        name: lead.name,
+        email: lead.email,
+        ...(lead.phone ? { phone: lead.phone } : {}),
+        ...(lead.company ? { company: lead.company } : {}),
+        ...(lead.revenue ? { revenue: lead.revenue } : {}),
+        ...(lead.role ? { role: lead.role } : {}),
+        ...(lead.customFields ? { customFields: lead.customFields } : {}),
+        consent: lead.consent,
+      },
+      tracking: {
+        utm_source: lead.utm_source,
+        utm_medium: lead.utm_medium,
+        utm_campaign: lead.utm_campaign,
+        utm_content: lead.utm_content,
+        utm_term: lead.utm_term,
+        referrer: lead.referrer,
+        device: lead.device,
+      },
+    };
+
+    let anySuccess = false;
+    await Promise.all(activeWebhooks.map(async (webhook) => {
+      let status: 'success' | 'error' = 'error';
+      let statusCode: number | undefined;
+      let errorMessage: string | undefined;
+
+      try {
+        const response = await fetch(webhook.url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Webhook-Secret': webhook.secret || '' },
+          body: JSON.stringify({ ...payload, security: { secret: webhook.secret } }),
+        });
+        statusCode = response.status;
+        status = response.ok ? 'success' : 'error';
+        if (!response.ok) errorMessage = `HTTP ${response.status}`;
+        if (response.ok) anySuccess = true;
+      } catch (err) {
+        errorMessage = err instanceof Error ? err.message : String(err);
+      }
+
+      try {
+        await addDoc(collection(db, 'funnels', funnelId, 'webhookLogs'), {
+          funnelId,
+          webhookId: webhook.id,
+          webhookUrl: webhook.url,
+          event: 'lead_captured',
+          payload,
+          status,
+          ...(statusCode !== undefined ? { statusCode } : {}),
+          ...(errorMessage ? { errorMessage } : {}),
+          attemptCount: 1,
+          createdAt: now,
+          lastAttemptAt: now,
+        });
+      } catch (logErr) {
+        console.error('Failed to write webhook log:', logErr);
+      }
+    }));
+
+    setResendResult({ leadId: lead.id, status: anySuccess ? 'success' : 'error' });
+    setResendingWebhookLeadId(null);
+    setTimeout(() => setResendResult(null), 3000);
   };
 
   if (loading) return <div className="p-8 text-center">Carregando leads...</div>;
@@ -293,29 +386,54 @@ export function LeadsList({ funnelId }: { funnelId: string }) {
                     {format(new Date(lead.createdAt), 'dd/MM/yyyy HH:mm')}
                   </td>
                   <td className="px-4 py-4 text-right">
-                    {leadToDelete === lead.id ? (
-                      <div className="flex items-center justify-end gap-1">
+                    <div className="flex items-center justify-end gap-1">
+                      {webhooks.some(w => w.enabled && w.events.includes('lead_captured')) && (
+                        leadToDelete !== lead.id && (
+                          resendResult?.leadId === lead.id ? (
+                            <span className={cn(
+                              "flex items-center gap-1 text-[10px] font-medium",
+                              resendResult.status === 'success' ? "text-emerald-600" : "text-red-500"
+                            )}>
+                              {resendResult.status === 'success'
+                                ? <><CheckCircle2 className="h-3.5 w-3.5" /> Enviado</>
+                                : <><AlertCircle className="h-3.5 w-3.5" /> Erro</>}
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => resendWebhook(lead)}
+                              disabled={resendingWebhookLeadId === lead.id}
+                              title="Reenviar Webhook"
+                              className="flex items-center gap-1 rounded p-1.5 text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-600 disabled:opacity-50"
+                            >
+                              <RefreshCw className={cn("h-4 w-4", resendingWebhookLeadId === lead.id && "animate-spin")} />
+                            </button>
+                          )
+                        )
+                      )}
+                      {leadToDelete === lead.id ? (
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => deleteLead(lead.id)}
+                            className="rounded bg-red-600 px-2 py-1 text-[10px] font-bold text-white hover:bg-red-700"
+                          >
+                            Sim
+                          </button>
+                          <button
+                            onClick={() => setLeadToDelete(null)}
+                            className="rounded border border-slate-200 bg-white px-2 py-1 text-[10px] font-medium text-slate-600 hover:bg-slate-50"
+                          >
+                            Não
+                          </button>
+                        </div>
+                      ) : (
                         <button
-                          onClick={() => deleteLead(lead.id)}
-                          className="rounded bg-red-600 px-2 py-1 text-[10px] font-bold text-white hover:bg-red-700"
+                          onClick={() => setLeadToDelete(lead.id)}
+                          className="rounded p-1.5 text-slate-300 transition-colors hover:bg-red-50 hover:text-red-500"
                         >
-                          Sim
+                          <Trash2 className="h-4 w-4" />
                         </button>
-                        <button
-                          onClick={() => setLeadToDelete(null)}
-                          className="rounded border border-slate-200 bg-white px-2 py-1 text-[10px] font-medium text-slate-600 hover:bg-slate-50"
-                        >
-                          Não
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => setLeadToDelete(lead.id)}
-                        className="rounded p-1.5 text-slate-300 transition-colors hover:bg-red-50 hover:text-red-500"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    )}
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

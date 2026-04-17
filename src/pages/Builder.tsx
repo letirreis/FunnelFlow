@@ -370,7 +370,11 @@ export function Builder({ funnelId, onBack }: { funnelId: string; onBack: () => 
 
         {activeTab === 'leads' && (
           <div className="h-full overflow-y-auto">
-            <LeadsList funnelId={funnelId} />
+            <LeadsList
+              funnelId={funnelId}
+              webhooks={funnel.integrations?.webhooks || []}
+              funnelName={funnel.name}
+            />
           </div>
         )}
         {activeTab === 'settings' && (
