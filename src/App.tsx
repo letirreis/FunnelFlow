@@ -1,12 +1,23 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from './firebase';
-import { Dashboard } from './pages/Dashboard';
-import { Builder } from './pages/Builder';
 import { Renderer } from './pages/Renderer';
-import { Login } from './pages/Login';
 import { UserProfile } from './types';
+
+// Lazy-load authenticated-only pages so their heavy dependencies
+// (TipTap, DnD Kit, recharts) are never downloaded by public funnel visitors.
+const Dashboard = React.lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })));
+const Builder = React.lazy(() => import('./pages/Builder').then(m => ({ default: m.Builder })));
+const Login = React.lazy(() => import('./pages/Login').then(m => ({ default: m.Login })));
+
+function PageSpinner() {
+  return (
+    <div className="flex h-screen items-center justify-center bg-slate-50">
+      <div className="h-12 w-12 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+    </div>
+  );
+}
 
 export default function App() {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -52,11 +63,7 @@ export default function App() {
   }, []);
 
   if (loading) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-slate-50">
-        <div className="h-12 w-12 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
-      </div>
-    );
+    return <PageSpinner />;
   }
 
   if (view.type === 'renderer') {
@@ -64,16 +71,22 @@ export default function App() {
   }
 
   if (!userProfile) {
-    return <Login />;
+    return (
+      <Suspense fallback={<PageSpinner />}>
+        <Login />
+      </Suspense>
+    );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      {view.type === 'dashboard' ? (
-        <Dashboard onEdit={(id) => setView({ type: 'builder', id })} />
-      ) : (
-        <Builder funnelId={view.id!} onBack={() => setView({ type: 'dashboard' })} />
-      )}
-    </div>
+    <Suspense fallback={<PageSpinner />}>
+      <div className="min-h-screen bg-slate-50">
+        {view.type === 'dashboard' ? (
+          <Dashboard onEdit={(id) => setView({ type: 'builder', id })} />
+        ) : (
+          <Builder funnelId={view.id!} onBack={() => setView({ type: 'dashboard' })} />
+        )}
+      </div>
+    </Suspense>
   );
 }

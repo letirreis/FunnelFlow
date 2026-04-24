@@ -917,6 +917,7 @@ export function Renderer({ slug }: { slug: string }) {
                     }}
                     className="w-full"
                     referrerPolicy="no-referrer"
+                    fetchPriority="high"
                   />
                 </div>
               )}
@@ -991,7 +992,7 @@ export function Renderer({ slug }: { slug: string }) {
               <div className="space-y-6">
                 {currentQuestion.imageUrl && (
                   <div className="mb-6 overflow-hidden rounded-2xl shadow-lg">
-                    <img src={currentQuestion.imageUrl} alt="" className="w-full object-cover max-h-64" referrerPolicy="no-referrer" />
+                    <img src={currentQuestion.imageUrl} alt="" className="w-full object-cover max-h-64" referrerPolicy="no-referrer" loading="lazy" />
                   </div>
                 )}
                 <h2
@@ -1043,7 +1044,7 @@ export function Renderer({ slug }: { slug: string }) {
                       >
                         {opt.imageUrl && (
                           <div className="aspect-video w-full overflow-hidden">
-                            <img src={opt.imageUrl} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+                            <img src={opt.imageUrl} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" loading="lazy" />
                           </div>
                         )}
                         <div className="flex flex-1 items-center justify-between p-5 text-left">
