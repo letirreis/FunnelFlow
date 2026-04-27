@@ -237,7 +237,7 @@ export function LeadsList({ funnelId, webhooks = [], funnelName = '' }: LeadsLis
           event: 'response_submitted',
           source: 'FunnelBuilder Pro',
           version: '1.0',
-          timestamp: now,
+          timestamp: responseCreatedAt || lead.createdAt,
         },
         funnel: {
           id: funnelId,
@@ -263,7 +263,7 @@ export function LeadsList({ funnelId, webhooks = [], funnelName = '' }: LeadsLis
           event: 'lead_captured',
           source: 'FunnelBuilder Pro',
           version: '1.0',
-          timestamp: now,
+          timestamp: lead.createdAt,
         },
         funnel: {
           id: funnelId,
