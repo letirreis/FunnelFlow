@@ -9,6 +9,12 @@ import { cn } from '../components/ui';
 
 const FIRESTORE_BATCH_LIMIT = 500;
 const MAX_RESPONSE_KEY_LENGTH = 40;
+const LEADS_TABLE_COLUMNS = 8;
+
+// Firestore document IDs must be non-empty strings without forward slashes.
+function isValidFirestoreId(value: string): boolean {
+  return value.length > 0 && !value.includes('/');
+}
 
 function getWebhookEventForStatus(status: Lead['status']): 'response_submitted' | 'lead_captured' {
   return status === 'completed' ? 'response_submitted' : 'lead_captured';
@@ -340,20 +346,23 @@ export function LeadsList({ funnelId, webhooks = [], funnelName = '' }: LeadsLis
         query(collection(db, 'funnels', funnelId, 'questions'), orderBy('order', 'asc'))
       );
       const answeredDocs = questionsSnap.docs.filter(qDoc => parsedAnswers[qDoc.id]);
+      // Separate questions with a valid option ID (choice questions) from free-text answers.
+      const choiceDocs = answeredDocs.filter(qDoc => isValidFirestoreId(parsedAnswers[qDoc.id]));
       const optionSnaps = await Promise.all(
-        answeredDocs.map(qDoc =>
+        choiceDocs.map(qDoc =>
           getDoc(doc(db, 'funnels', funnelId, 'questions', qDoc.id, 'options', parsedAnswers[qDoc.id]))
         )
       );
+      const choiceOptionMap = new Map(choiceDocs.map((qDoc, idx) => [qDoc.id, optionSnaps[idx]]));
       const result: Array<{ question: string; answer: string }> = [];
-      answeredDocs.forEach((qDoc, idx) => {
-        const optSnap = optionSnaps[idx];
+      answeredDocs.forEach((qDoc) => {
         const qData = qDoc.data();
         const questionText = ((qData.text as string) || '')
           .replace(/<[^>]*>/g, ' ')
           .replace(/\s+/g, ' ')
           .trim();
-        const answerText = optSnap.exists() ? ((optSnap.data().text as string) || '') : parsedAnswers[qDoc.id];
+        const optSnap = choiceOptionMap.get(qDoc.id);
+        const answerText = optSnap?.exists() ? ((optSnap.data().text as string) || '') : parsedAnswers[qDoc.id];
         result.push({ question: questionText, answer: answerText });
       });
       setLeadAnswers(prev => ({ ...prev, [lead.id]: result.length > 0 ? result : 'empty' }));
@@ -626,7 +635,7 @@ export function LeadsList({ funnelId, webhooks = [], funnelName = '' }: LeadsLis
                 </tr>
                 {expandedLeadId === lead.id && (
                   <tr className="bg-indigo-50/40">
-                    <td colSpan={8} className="px-6 py-4">
+                    <td colSpan={LEADS_TABLE_COLUMNS} className="px-6 py-4">
                       {leadAnswers[lead.id] === 'loading' ? (
                         <p className="text-xs text-slate-500">Carregando respostas...</p>
                       ) : leadAnswers[lead.id] === 'empty' || !leadAnswers[lead.id] ? (
